@@ -1,0 +1,16 @@
+Objectif : Créer un serveur ou plusieurs personne (clients) peuvent se connecter pour acceder à un chat en gros.
+
+Comment : 
+1) Faut lancer le serveur, en lancant le projet : ./irc <port> <password>
+2) Faut creer un client pour rejoindre le serveur : nc <adresseIP> <port>
+
+Etapes du projet : 
+
+1) Créer le serveur
+
+2) Gérer l'authentification utilisateurs (clients) (si y'a le bon mdp et tout)
+
+3) Gérer les différents channels de discussion
+
+4) J
+
