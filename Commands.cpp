@@ -1,90 +1,156 @@
 #include "Commands.hpp"
-#include <iostream> // Pour std::cout et std::endl
-#include <stdexcept> // Pour std::runtime_error
+#include <iostream>
+#include <stdexcept>
 
-void handleJoinCommand(ChannelManager& channelManager, const std::string& channelName, const std::string& user)
+// JOIN: Rejoindre un canal
+void handleJoinCommand(ChannelManager& channelManager, MockServer& server, const std::string& channelName, const std::string& user) 
 {
-    try {
+    try 
+    {
         Channel& channel = channelManager.getChannel(channelName);
         channel.addUser(user);
+
+        // Si le canal est vide avant d'ajouter l'utilisateur, le définir comme opérateur
+        if (channel.getUsers().size() == 1) 
+        {
+            channel.addOperator(user);
+        }
+
+        server.sendMessage(user, "Vous avez rejoint le canal " + channelName);
         std::cout << user << " a rejoint le canal " << channelName << std::endl;
-    } catch (const std::runtime_error& e) {
+    } 
+    catch (const std::runtime_error& e) 
+    {
         std::cerr << "Erreur : " << e.what() << std::endl;
     }
 }
 
-void handlePartCommand(ChannelManager& channelManager, const std::string& channelName, const std::string& user)
+// PART: Quitter un canal
+void handlePartCommand(ChannelManager& channelManager, MockServer& server, const std::string& channelName, const std::string& user) 
 {
-    try {
+    try 
+    {
         Channel& channel = channelManager.getChannel(channelName);
+        bool wasOperator = channel.isOperator(user); // Vérifie si l'utilisateur qui part est un opérateur
         channel.removeUser(user);
+        server.sendMessage(user, "Vous avez quitté le canal " + channelName);
         std::cout << user << " a quitté le canal " << channelName << std::endl;
-    } catch (const std::runtime_error& e) {
+
+        // Si l'utilisateur qui part était un opérateur, promouvoir un nouvel opérateur
+        if (wasOperator && !channel.getUsers().empty()) 
+        {
+            std::string newOperator = channel.getUsers()[0]; // Prend le premier utilisateur de la liste
+            channel.addOperator(newOperator);
+            server.sendMessage(newOperator, "Vous êtes maintenant opérateur du canal " + channelName);
+            std::cout << newOperator << " est maintenant opérateur du canal " << channelName << std::endl;
+        }
+
+        if (channel.isEmpty()) 
+        {
+            channelManager.deleteChannel(channelName);
+        }
+    } 
+    catch (const std::runtime_error& e) 
+    {
         std::cerr << "Erreur : " << e.what() << std::endl;
     }
 }
 
-void handleKickCommand(ChannelManager& channelManager, const std::string& channelName, const std::string& user, const std::string& targetUser)
+// KICK: Expulser un utilisateur du canal
+void handleKickCommand(ChannelManager& channelManager, MockServer& server, const std::string& channelName, const std::string& user, const std::string& targetUser) 
 {
-    try {
+    try 
+    {
         Channel& channel = channelManager.getChannel(channelName);
-        if (channel.isOperator(user)) {
+        if (channel.isOperator(user)) 
+        {
             channel.removeUser(targetUser);
+            server.sendMessage(targetUser, "Vous avez été expulsé du canal " + channelName + " par " + user);
             std::cout << targetUser << " a été expulsé du canal " << channelName << " par " << user << std::endl;
-        } else {
+        } 
+        else 
+        {
             std::cerr << "Erreur : " << user << " n'a pas les permissions nécessaires." << std::endl;
         }
-    } catch (const std::runtime_error& e) {
+    } 
+    catch (const std::runtime_error& e) 
+    {
         std::cerr << "Erreur : " << e.what() << std::endl;
     }
 }
 
-void handleInviteCommand(ChannelManager& channelManager, const std::string& channelName, const std::string& user, const std::string& targetUser)
+// INVITE: Inviter un utilisateur à rejoindre le canal
+void handleInviteCommand(ChannelManager& channelManager, MockServer& server, const std::string& channelName, const std::string& user, const std::string& targetUser) 
 {
-    try {
+    try 
+    {
         Channel& channel = channelManager.getChannel(channelName);
-        if (channel.isOperator(user)) {
+        if (channel.isOperator(user)) 
+        {
             channel.addUser(targetUser);
+            server.sendMessage(targetUser, "Vous avez été invité à rejoindre le canal " + channelName + " par " + user);
             std::cout << targetUser << " a été invité à rejoindre le canal " << channelName << " par " << user << std::endl;
-        } else {
+        } 
+        else 
+        {
             std::cerr << "Erreur : " << user << " n'a pas les permissions nécessaires." << std::endl;
         }
-    } catch (const std::runtime_error& e) {
+    } 
+    catch (const std::runtime_error& e) 
+    {
         std::cerr << "Erreur : " << e.what() << std::endl;
     }
 }
 
-void handleTopicCommand(ChannelManager& channelManager, const std::string& channelName, const std::string& user, const std::string& newTopic)
+// TOPIC: Modifier le sujet du canal
+void handleTopicCommand(ChannelManager& channelManager, MockServer& server, const std::string& channelName, const std::string& user, const std::string& newTopic) 
 {
-    try {
+    try 
+    {
         Channel& channel = channelManager.getChannel(channelName);
-        if (channel.isOperator(user)) {
+        if (channel.isOperator(user)) 
+        {
             channel.setTopic(newTopic);
+            server.sendMessage(user, "Le sujet du canal " + channelName + " a été modifié par " + user);
             std::cout << "Le sujet du canal " << channelName << " a été modifié par " << user << std::endl;
-        } else {
+        } 
+        else 
+        {
             std::cerr << "Erreur : " << user << " n'a pas les permissions nécessaires." << std::endl;
         }
-    } catch (const std::runtime_error& e) {
+    } 
+    catch (const std::runtime_error& e) 
+    {
         std::cerr << "Erreur : " << e.what() << std::endl;
     }
 }
 
-void handleModeCommand(ChannelManager& channelManager, const std::string& channelName, const std::string& user, const std::string& mode)
+// MODE: Modifier le mode du canal
+void handleModeCommand(ChannelManager& channelManager, MockServer& server, const std::string& channelName, const std::string& user, const std::string& mode) 
 {
-    try {
+    try 
+    {
         Channel& channel = channelManager.getChannel(channelName);
-        if (channel.isOperator(user)) {
-            if (mode == "+o") {
+        if (channel.isOperator(user)) 
+        {
+            if (mode == "+o") 
+            {
                 channel.addOperator(user);
-            } else if (mode == "-o") {
+            } 
+            else if (mode == "-o") 
+            {
                 channel.removeOperator(user);
             }
+            server.sendMessage(user, "Le mode du canal " + channelName + " a été modifié par " + user);
             std::cout << "Le mode du canal " << channelName << " a été modifié par " << user << std::endl;
-        } else {
+        } 
+        else 
+        {
             std::cerr << "Erreur : " << user << " n'a pas les permissions nécessaires." << std::endl;
         }
-    } catch (const std::runtime_error& e) {
+    } 
+    catch (const std::runtime_error& e) 
+    {
         std::cerr << "Erreur : " << e.what() << std::endl;
     }
 }
-
