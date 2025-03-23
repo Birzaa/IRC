@@ -15,7 +15,7 @@ NAME            = irc
 #--------------------Compilation----------------
 
 CXX             = c++
-CFLAGS          = -Wall -Wextra -Werror -std=c++98
+CFLAGS          = -Wall -Wextra -Werror -std=c++98 -g3
 RM              = rm -rf
 
 #--------------------PATHS----------------------
@@ -26,11 +26,13 @@ OBJ_PATH        = .objects
 
 HEADERS         = $(addsuffix .hpp, \
 					Server \
+					Client \
 					)
 
 SRCS            = $(addsuffix .cpp, \
 					main \
 					Server \
+					Client \
 					)
 
 OBJS            = $(SRCS:%.cpp=$(OBJ_PATH)/%.o)
@@ -43,7 +45,7 @@ all: $(NAME)
 
 $(NAME): $(OBJS) $(HEADERS)
 	@$(CXX) $(CFLAGS) $(OBJS) -o $(NAME)
-	@echo "${MAGENTA}$@ ${GREEN}Compiled successfully${NC}"
+	@echo "${MAGENTA}$@ Compiled successfully${NC}"
 
 $(OBJ_PATH)/%.o: %.cpp $(HEADERS)
 	@mkdir -p $(dir $@)

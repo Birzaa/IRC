@@ -58,3 +58,24 @@ Clients IRC : Utilisez un client comme irssi ou HexChat pour tester votre serveu
 Documentation : Consultez la documentation officielle du protocole IRC (RFC 1459) pour comprendre les commandes et les messages.
 
 Outils de débogage : Utilisez des outils comme valgrind pour détecter les fuites de mémoire et gdb pour déboguer le code.
+
+
+Explication pour la fonction : initSocket
+Fonction	Explication
+socket()	Crée un point de communication sur le réseau (TCP ou UDP).
+setsockopt()	Configure des options du socket (SO_REUSEADDR, etc.).
+bind()	Associe le socket à une IP et un port.
+listen()	Met le socket en écoute pour accepter des connexions.
+fcntl(O_NONBLOCK)	Active le mode non-bloquant pour éviter les blocages.
+pollfd + poll()	Surveille plusieurs sockets pour détecter des événements (connexions, messages reçus, etc.).
+
+
+
+
+Explication pour la fonction : startServer 
+Étape	Explication
+poll()	Attend un événement sur un socket (connexion entrante ou message reçu).
+_fds[i].revents & POLLIN	Vérifie si un socket est prêt à être lu.
+acceptClient()	Accepte un nouveau client qui tente de se connecter.
+handleMessage(fd)	Lit et traite un message envoyé par un client.
+closeFds()	Ferme toutes les connexions avant d’arrêter le serveur.
