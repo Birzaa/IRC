@@ -28,7 +28,8 @@ HEADERS         = $(addsuffix .hpp, \
 					Channel \
 					ChannelManager \
 					Commands \
-					MockServer \
+					Server \
+					Client \
 					)
 
 SRCS            = $(addsuffix .cpp, \
@@ -36,7 +37,8 @@ SRCS            = $(addsuffix .cpp, \
 					Channel \
 					ChannelManager \
 					Commands \
-					MockServer \
+					Server \
+					Client \
 					)
 
 OBJS            = $(SRCS:%.cpp=$(OBJ_PATH)/%.o)
