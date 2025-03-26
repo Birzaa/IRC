@@ -51,12 +51,12 @@ Client::Client(const Client& other)
 
 int Client::getFd() const
 {
-	return this->_fd;
+	return _fd;
 }
 
 void Client::setFd(int fd)
 {
-	this->_fd = fd;
+	_fd = fd;
 }
 
 bool Client::getAuthenticated() const

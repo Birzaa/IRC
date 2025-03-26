@@ -14,6 +14,7 @@
 #include <signal.h> // signal
 #include <algorithm> // remove
 #include <sstream> // istringstream
+#include <map>
 
 
 #define GREEN   "\033[0;32m"
@@ -28,13 +29,14 @@
 
 
 #include "Client.hpp"
+#include "Channel.hpp"
 
 class Server 
 {
 	private :
 		int _serverFd, _port;
 		std::string _password;
-		std::vector<Client> _clients; // all clients
+		std::vector<Client*> _clients; // all clients
 		std::vector<pollfd> _fds; // list of file descriptors
 
 		void initSocket();
@@ -42,6 +44,9 @@ class Server
 		void acceptClient();
 		void handleMessage(int client_fd);
 		void removeClient(int client_fd);
+
+		// Channel
+		std::map<std::string, Channel> _channels;
 
 
 	public : 
@@ -62,6 +67,13 @@ class Server
 		void handlePrivmsg(Client *client, std::istringstream &iss);
 		bool isRegistered(Client *client);
 
+		// Channel
+		void createChannel(std::istringstream& channelName, Client* client);
+		void handlePart(Client* client, std::istringstream& iss);
+		void handleQuit(Client* client);
+
+		//Operator
+		void handleKick(Client* client, std::istringstream& iss);
 
 };
 

@@ -27,12 +27,14 @@ OBJ_PATH        = .objects
 HEADERS         = $(addsuffix .hpp, \
 					Server \
 					Client \
+					Channel \
 					)
 
 SRCS            = $(addsuffix .cpp, \
 					main \
 					Server \
 					Client \
+					Channel \
 					)
 
 OBJS            = $(SRCS:%.cpp=$(OBJ_PATH)/%.o)

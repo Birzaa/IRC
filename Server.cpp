@@ -8,6 +8,9 @@ Server::Server(const std::string &port, const std::string &password)
 
 Server::~Server()
 {
+	for (size_t i = 0; i < _clients.size(); i++) 
+    	delete _clients[i]; 
+
 	std::cout << BOLD_RED << "\nServer closed" << RESET << std::endl;
 }
 
@@ -60,8 +63,8 @@ void Server::closeFds()
 {
 	for (size_t i = 0; i < _clients.size(); i++)
 	{
-		std::cout << ORANGE << "Client : " << this->_clients[i].getFd() << " Disconnected" << RESET << std::endl;
-		close(this->_clients[i].getFd());
+		std::cout << ORANGE << "Client : " << this->_clients[i]->getFd() << " Disconnected" << RESET << std::endl;
+		close(this->_clients[i]->getFd());
 	}
 	if (this->_serverFd >= 0)
 		close(this->_serverFd);
@@ -96,7 +99,7 @@ void Server::startServer()
 
 void Server::acceptClient() 
 {
-    Client newClient;
+    Client* newClient = new Client();;
 	struct sockaddr_in clientAddr;
 	struct pollfd pfd;
 	socklen_t len = sizeof(clientAddr);
@@ -111,8 +114,8 @@ void Server::acceptClient()
 		throw std::runtime_error("Fcntl failed");
 
 	// Ajouter le client à la liste des clients
-	newClient.setFd(clientFd);
-	newClient.setIpClient(inet_ntoa(clientAddr.sin_addr)); // convert ip to string
+	newClient->setFd(clientFd);
+	newClient->setIpClient(inet_ntoa(clientAddr.sin_addr)); // convert ip to string
 	_clients.push_back(newClient); // add the client to the list of clients
 
 	// Ajouter le client à la liste des FDs surveillés
@@ -191,6 +194,14 @@ void Server::handleMessage(int clientFd)
 			handleUser(client, iss);
 		else if (command == "PRIVMSG")
 			handlePrivmsg(client, iss);
+		else if (command == "JOIN")
+			createChannel(iss, client);
+		else if (command == "PART")
+			handlePart(client, iss);
+		else if (command == "QUIT")
+			handleQuit(client);
+		else if (command == "KICK")
+			handleKick(client, iss);
 	}
 
 }
@@ -200,10 +211,11 @@ void Server::removeClient(int clientFd)
 	if (clientFd >= 0)
    		close(clientFd);
 
-    // Rechercher le client dans le vecteur (par exemple, par clientFd)
     for (size_t i = 0; i < _clients.size(); i++) 
 	{
-        if (_clients[i].getFd() == clientFd) {  // Supposons qu'il y ait une méthode `getFd()` dans `Client`
+        if (_clients[i]->getFd() == clientFd)
+		{
+			delete _clients[i];
             _clients.erase(_clients.begin() + i);  // Supprime l'élément au bon index
             break;
         }
@@ -233,8 +245,8 @@ Client* Server::getClientByFd(int fd)
 {
     for (size_t i = 0; i < _clients.size(); i++) 
     {
-        if (_clients[i].getFd() == fd) 
-            return &_clients[i];  // Retourne un pointeur vers le client trouvé
+        if (_clients[i]->getFd() == fd) 
+            return _clients[i];  // Retourne vers le client trouvé
     }
     return NULL;  // Si aucun client trouvé
 }
@@ -252,7 +264,7 @@ void Server::handleNick(Client *client, std::istringstream &iss)
 	 // Vérifier si le nickname est déjà pris par un autre client
     for (size_t i = 0; i < _clients.size(); i++) 
     {
-        if (_clients[i].getNickname() == nickname) 
+        if (_clients[i]->getNickname() == nickname) 
         {
             send(client->getFd(), CYAN"~> Nickname is already taken\n" RESET, 41, 0);
             return;
@@ -289,12 +301,14 @@ void Server::handleUser(Client* client, std::istringstream &iss) {
 
 bool Server::isRegistered(Client *client)
 {
-	return !client->getNickname().empty() && !client->getUsername().empty() && !client->getHostname().empty() && !client->getServername().empty() && !client->getRealname().empty();
+	// return !client->getNickname().empty() && !client->getUsername().empty() && !client->getHostname().empty() && !client->getServername().empty() && !client->getRealname().empty();
+	(void)client;
+	return 1;
 }
 
 void Server::handlePrivmsg(Client *client, std::istringstream &iss)
 {
-    std::string nickname, message;
+    std::string target, message;
 
     if (!isRegistered(client))
     {
@@ -302,50 +316,260 @@ void Server::handlePrivmsg(Client *client, std::istringstream &iss)
         return;
     }
 
-    // Extraire le nickname du destinataire
-    iss >> nickname;
+    // Extraire la cible (nickname ou channel)
+    iss >> target;
     
     // Vérification si le message est vide
     std::getline(iss, message);
-    if (message.empty())
+    message.erase(0, message.find_first_not_of(" \t")); // Supprimer les espaces/tabulations au début
+
+    if (target.empty() || message.empty())
     {
-        send(client->getFd(), CYAN "~> Message cannot be empty\n" RESET, 39, 0);
+        send(client->getFd(), CYAN "~> Usage: PRIVMSG <target> :<message>\n" RESET, 46, 0);
         return;
     }
 
-    // Supprimer les espaces au début du message
-    message.erase(0, message.find_first_not_of(' '));
-
-    // Vérifier si le message commence par un ':'
-    if (message.empty() || message[0] != ':')
+    // Vérifier le format du message
+    if (message[0] != ':')
     {
-        send(client->getFd(), CYAN "~> Usage: PRIVMSG <nickname> :<message>\n" RESET, 52, 0);
+        send(client->getFd(), CYAN "~> Message must start with ':'\n" RESET, 38, 0);
         return;
     }
+    message = message.substr(1); // Supprimer le ':'
 
-    // Supprimer le caractère ':' au début du message
-    message = message.substr(1);
-
-    // Vérifier si le nickname existe parmi les clients
-    Client *recipient = NULL;
-    for (size_t i = 0; i < _clients.size(); i++) 
+    // CAS 1: Message à un channel (commence par #)
+    if (target[0] == '#')
     {
-        if (_clients[i].getNickname() == nickname) 
+        std::map<std::string, Channel>::iterator it = _channels.find(target);
+        if (it == _channels.end())
         {
-            recipient = &_clients[i];
+            send(client->getFd(), CYAN "~> Channel not found\n" RESET, 35, 0);
+            return;
+        }
+
+        // Vérifier que l'expéditeur est dans le channel
+        bool inChannel = false;
+        const std::vector<Client*>& members = it->second.getClients();
+        for (size_t i = 0; i < members.size(); ++i)
+        {
+            if (members[i]->getFd() == client->getFd())
+            {
+                inChannel = true;
+                break;
+            }
+        }
+
+        if (!inChannel)
+        {
+            send(client->getFd(), CYAN "~> You're not in this channel\n" RESET, 42, 0);
+            return;
+        }
+
+        // Envoyer le message à tous les membres du channel
+        std::string channelMsg = ":" + client->getNickname() + "!" + client->getUsername() + "@" + client->getHostname() + 
+                                " PRIVMSG " + target + " :" + message + "\r\n";
+        
+        for (size_t i = 0; i < members.size(); ++i)
+        {
+            if (members[i]->getFd() != client->getFd()) // Ne pas renvoyer à l'expéditeur
+            {
+                send(members[i]->getFd(), channelMsg.c_str(), channelMsg.size(), 0);
+            }
+        }
+        send(client->getFd(), (MAGENTA "~> Message sent to " + target + "\n" RESET).c_str(), 32 + target.size(), 0);
+    }
+    // CAS 2: Message privé
+    else
+    {
+        Client *recipient = NULL;
+        for (size_t i = 0; i < _clients.size(); i++) 
+        {
+            if (_clients[i]->getNickname() == target) 
+            {
+                recipient = _clients[i];
+                break;
+            }
+        }
+
+        if (recipient) 
+        {
+            std::string privateMsg = ":" + client->getNickname() + "!" + client->getUsername() + "@" + client->getHostname() + 
+                                   " PRIVMSG " + target + " :" + message + "\r\n";
+            send(recipient->getFd(), privateMsg.c_str(), privateMsg.size(), 0);
+            send(client->getFd(), (MAGENTA "~> Message sent to " + target + "\n" RESET).c_str(), 32 + target.size(), 0);
+        } 
+        else 
+        {
+            send(client->getFd(), CYAN "~> Nickname not found\n" RESET, 34, 0);
+        }
+    }
+}
+
+
+
+//                                Channel
+
+void Server::createChannel(std::istringstream& iss, Client* client) 
+{
+	std::string channelName;
+    iss >> channelName;
+
+	if (!isRegistered(client))
+    {
+        send(client->getFd(), CYAN "~> You must set your nickname and user information first\n" RESET, 69, 0);
+        return;
+    }
+
+	if (channelName.empty() || channelName[0] != '#')
+	{
+		send(client->getFd(), CYAN "~> Usage: CREATE <#channel_name>\n" RESET, 44, 0);
+        return;
+	}
+
+	// Channel existe deja
+    if (_channels.find(channelName) != _channels.end()) 
+	{
+		std::map<std::string, Channel>::iterator it = _channels.find(channelName);
+		it->second.addClient(client);
+        return;
+    }
+    
+    std::pair<std::map<std::string, Channel>::iterator, bool> result = _channels.insert(std::make_pair(channelName, Channel(channelName)));
+
+    if (!result.second) 
+	{
+        send(client->getFd(), CYAN "~> Failed to create channel\n" RESET, 39, 0);
+        return;
+    }
+    
+
+    // Ajouter le client au channel
+	std::map<std::string, Channel>::iterator it = _channels.find(channelName);
+    it->second.addClient(client);
+
+    std::cout << GREEN << "Channel created: " << channelName << RESET << std::endl;
+}
+
+void Server::handlePart(Client* client, std::istringstream& iss) 
+{
+    std::string channelName;
+    iss >> channelName;
+
+    if (channelName.empty()) 
+	{
+        send(client->getFd(), CYAN "~> Usage: PART <channel>\n" RESET, 36, 0);
+        return;
+    }
+
+    // Vérifier si le canal existe
+    std::map<std::string, Channel>::iterator it = _channels.find(channelName);
+    if (it == _channels.end()) 
+	{
+        send(client->getFd(), CYAN "~> Channel does not exist\n" RESET, 37, 0);
+        return;
+    }
+
+    // Retirer le client du canal
+    it->second.removeClient(client);
+
+    // Envoyer un message de confirmation
+	std::string msg = MAGENTA "~> You left the channel: " + channelName + "\n"  RESET;
+    send(client->getFd(), msg.c_str(), 40 + channelName.size(), 0);
+
+    // Supprimer le canal s'il est vide
+    if (it->second.getClients().empty()) 
+	{
+        _channels.erase(it);
+        std::cout << RED << "Channel deleted: " << channelName << RESET << std::endl;
+    }
+}
+
+void Server::handleQuit(Client* client) 
+{
+    std::map<std::string, Channel>::iterator it = _channels.begin();
+    while (it != _channels.end()) 
+	{
+        it->second.removeClient(client);
+        if (it->second.getClients().empty()) 
+		{
+            std::cout << RED << "Channel deleted: " << it->first << RESET << std::endl;
+            _channels.erase(it++);
+        } 
+		else 
+            ++it;
+    }
+    removeClient(client->getFd());
+}
+
+void Server::handleKick(Client* client, std::istringstream& iss) 
+{
+    std::string channelName, targetNick, reason;
+    iss >> channelName >> targetNick;
+    std::getline(iss, reason); // Capture ":Raison"
+
+    // Nettoyer la raison
+    if (!reason.empty() && reason[0] == ' ')
+        reason = reason.substr(1);
+    if (!reason.empty() && reason[0] == ':')
+        reason = reason.substr(1);
+
+    // Vérifier que le channel existe
+    if (_channels.find(channelName) == _channels.end()) 
+    {
+        std::string msg = std::string(CYAN) + channelName + " :No such channel\n" + RESET;
+        send(client->getFd(), msg.c_str(), msg.size(), 0);
+        return;
+    }
+
+    Channel& channel = _channels[channelName];
+
+    // Vérifier que le demandeur est opérateur
+    bool isOp = false;
+    const std::vector<Client*>& operators = channel.getOperators();
+    for (std::vector<Client*>::const_iterator it = operators.begin(); it != operators.end(); ++it)
+    {
+        if ((*it)->getFd() == client->getFd()) 
+        {
+            isOp = true;
             break;
         }
     }
 
-    // Si le destinataire existe, envoyer le message privé
-    if (recipient) 
+    if (!isOp) 
     {
-        std::string privateMessage = "PRIVMSG " + client->getNickname() + " : " + message + "\n";
-        send(recipient->getFd(), privateMessage.c_str(), privateMessage.size(), 0);
-        send(client->getFd(), (MAGENTA "~> Message sent to " + nickname + "\n" + RESET).c_str(), 32 + nickname.size(), 0);
-    } 
-    else 
-    {
-        send(client->getFd(), CYAN "~> Nickname not found\n" RESET, 34, 0);
+        std::string msg = std::string(CYAN) + channelName + " :You're not channel operator\n" + RESET;
+        send(client->getFd(), msg.c_str(), msg.size(), 0);
+        return;
     }
+
+    // Trouver la cible
+    Client* target = NULL;
+    const std::vector<Client*>& clients = channel.getClients();
+    for (std::vector<Client*>::const_iterator it = clients.begin(); it != clients.end(); ++it)
+    {
+        if ((*it)->getNickname() == targetNick) 
+        {
+            target = *it;
+            break;
+        }
+    }
+
+    if (!target) 
+    {
+        std::string msg = std::string(CYAN) + targetNick + " :No such nickname\n" + RESET;
+        send(client->getFd(), msg.c_str(), msg.size(), 0);
+        return;
+    }
+
+    // Exécuter le kick
+    std::string kickMsg = ":" + client->getNickname() + " KICK " + channelName + " " + targetNick + " :" + (reason.empty() ? "No reason" : reason) + "\r\n";
+    
+    // Envoyer à tous les membres du channel
+    for (std::vector<Client*>::const_iterator it = clients.begin(); it != clients.end(); ++it)
+    {
+        send((*it)->getFd(), kickMsg.c_str(), kickMsg.size(), 0);
+    }
+
+    // Retirer la cible du channel
+    channel.removeClient(target);
 }
