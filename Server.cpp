@@ -36,43 +36,38 @@ void Server::initServer()
 	startServer();
 }
 
-void Server::initSocket()
-{
-	// Create a socket
-	this->_serverFd = socket(AF_INET, SOCK_STREAM, 0);
-	if (this->_serverFd == -1)
-		throw std::runtime_error("Socket creation failed");
-	
-	// Set the socket options
-	int opt = 1;
-	if (setsockopt(this->_serverFd, SOL_SOCKET, SO_REUSEADDR | SO_REUSEPORT, &opt, sizeof(opt)) == -1)
-		throw std::runtime_error("Setsockopt failed");
-	
-	// set server configuration
-	struct sockaddr_in serverAddr;
-	serverAddr.sin_family = AF_INET; // use IPv4
-	serverAddr.sin_addr.s_addr = INADDR_ANY; // accept all connexions
-	serverAddr.sin_port = htons(this->_port); //convert port to network language
+void Server::initSocket() {
+    // Création du socket
+    _serverFd = socket(AF_INET, SOCK_STREAM, 0);
+    if (_serverFd == -1) {
+        throw std::runtime_error("Socket creation failed: " + std::string(strerror(errno)));
+    }
 
-	// Bind the socket to the address and port
-	if (bind(this->_serverFd, (struct sockaddr *)&serverAddr, sizeof(serverAddr)) == -1)
-		throw std::runtime_error("Bind failed");
+    // Configuration des options
+    int opt = 1;
+    if (setsockopt(_serverFd, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt)) < 0) {
+        close(_serverFd);
+        throw std::runtime_error("Setsockopt failed: " + std::string(strerror(errno)));
+    }
 
-	// Listen for incoming connexions
-	if (listen(this->_serverFd, SOMAXCONN) == -1)
-		throw std::runtime_error("Listen failed");
-	
-	// modifing the socket to non-blocking 
-	if(fcntl(this->_serverFd, F_SETFL, O_NONBLOCK) == -1)
-		throw std::runtime_error("Fcntl failed");
-	
-	// add server to poll()
-	struct pollfd pfd;
-	pfd.fd = this->_serverFd; // add the server socket to the poll watch list
-	pfd.events = POLLIN; // check if there is data to read (ex : new client)
-	this->_fds.push_back(pfd); // store the server socket in the poll list
+    // Configuration de l'adresse
+    struct sockaddr_in addr;
+    memset(&addr, 0, sizeof(addr));
+    addr.sin_family = AF_INET;
+    addr.sin_addr.s_addr = INADDR_ANY; // Écoute sur toutes les interfaces
+    addr.sin_port = htons(_port);
 
-	std::cout << GREEN << "Server started on port " << this->_port << RESET << std::endl;
+    // Bind
+    if (bind(_serverFd, (struct sockaddr*)&addr, sizeof(addr)) < 0) {
+        close(_serverFd);
+        throw std::runtime_error("Bind failed: " + std::string(strerror(errno)));
+    }
+
+    // Listen
+    if (listen(_serverFd, SOMAXCONN) < 0) {
+        close(_serverFd);
+        throw std::runtime_error("Listen failed: " + std::string(strerror(errno)));
+    }
 }
 
 void Server::closeFds()
