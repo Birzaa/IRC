@@ -31,6 +31,9 @@ class Channel
 		bool _inviteOnly;
 		std::string _password;
 		int _maxClients;
+        std::vector<std::string> _invited; // Liste des clients invités
+        bool _topicRestricted; // Mode +t
+        
 
 		void alertAll(const std::string& nickname, const std::string& msg);
 
@@ -54,7 +57,18 @@ class Channel
 		void removeOperator(Client* client);
 		const std::vector<Client*>& getOperators() const;
 
-		
+		void setTopic(const std::string& topic);
+        const std::string& getTopic() const;
+        void setInviteOnly(bool inviteOnly);
+        bool getInviteOnly() const;
+        void setPassword(const std::string& password);
+        const std::string& getPassword() const;
+        void setMaxClients(int maxClients);
+        int getMaxClients() const;
+        void addInvited(const std::string& nickname);
+        bool isInvited(const std::string& nickname) const;
+        bool getTopicRestricted() const;
+        void setTopicRestricted(bool restricted);
 };
 
 #endif // CHANNEL_HPP

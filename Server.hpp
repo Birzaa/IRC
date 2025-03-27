@@ -74,6 +74,9 @@ class Server
 
 		//Operator
 		void handleKick(Client* client, std::istringstream& iss);
+        void handleInvite(Client* client, std::istringstream& iss);
+        void handleTopic(Client* client, std::istringstream& iss);
+        void handleMode(Client* client, std::istringstream& iss);
 
 };
 

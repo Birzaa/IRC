@@ -20,43 +20,53 @@ void Server::initServer()
 	startServer();
 }
 
-void Server::initSocket()
-{
-	// Create a socket
-	this->_serverFd = socket(AF_INET, SOCK_STREAM, 0);
-	if (this->_serverFd == -1)
-		throw std::runtime_error("Socket creation failed");
-	
-	// Set the socket options
-	int opt = 1;
-	if (setsockopt(this->_serverFd, SOL_SOCKET, SO_REUSEADDR | SO_REUSEPORT, &opt, sizeof(opt)) == -1)
-		throw std::runtime_error("Setsockopt failed");
-	
-	// set server configuration
-	struct sockaddr_in serverAddr;
-	serverAddr.sin_family = AF_INET; // use IPv4
-	serverAddr.sin_addr.s_addr = INADDR_ANY; // accept all connexions
-	serverAddr.sin_port = htons(this->_port); //convert port to network language
+void Server::initSocket() {
+    // 1. Création du socket
+    _serverFd = socket(AF_INET, SOCK_STREAM, 0);
+    if (_serverFd == -1) {
+        throw std::runtime_error("Socket creation failed: " + std::string(strerror(errno)));
+    }
 
-	// Bind the socket to the address and port
-	if (bind(this->_serverFd, (struct sockaddr *)&serverAddr, sizeof(serverAddr)) == -1)
-		throw std::runtime_error("Bind failed");
+    // 2. Configuration des options (macOS compatible)
+    int opt = 1;
+    if (setsockopt(_serverFd, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt)) < 0) {
+        close(_serverFd);
+        throw std::runtime_error("Setsockopt failed: " + std::string(strerror(errno)));
+    }
 
-	// Listen for incoming connexions
-	if (listen(this->_serverFd, SOMAXCONN) == -1)
-		throw std::runtime_error("Listen failed");
-	
-	// modifing the socket to non-blocking 
-	if(fcntl(this->_serverFd, F_SETFL, O_NONBLOCK) == -1)
-		throw std::runtime_error("Fcntl failed");
-	
-	// add server to poll()
-	struct pollfd pfd;
-	pfd.fd = this->_serverFd; // add the server socket to the poll watch list
-	pfd.events = POLLIN; // check if there is data to read (ex : new client)
-	this->_fds.push_back(pfd); // store the server socket in the poll list
+    // 3. Configuration de l'adresse
+    struct sockaddr_in serverAddr;
+    memset(&serverAddr, 0, sizeof(serverAddr)); // Initialisation propre
+    serverAddr.sin_family = AF_INET;
+    serverAddr.sin_addr.s_addr = INADDR_ANY;
+    serverAddr.sin_port = htons(_port);
 
-	std::cout << GREEN << "Server started on port " << this->_port << RESET << std::endl;
+    // 4. Bind
+    if (bind(_serverFd, (struct sockaddr*)&serverAddr, sizeof(serverAddr)) < 0) {
+        close(_serverFd);
+        throw std::runtime_error("Bind failed: " + std::string(strerror(errno)));
+    }
+
+    // 5. Listen
+    if (listen(_serverFd, SOMAXCONN) < 0) {
+        close(_serverFd);
+        throw std::runtime_error("Listen failed: " + std::string(strerror(errno)));
+    }
+
+    // 6. Mode non-bloquant (comme dans ta version originale)
+    if (fcntl(_serverFd, F_SETFL, O_NONBLOCK) < 0) {
+        close(_serverFd);
+        throw std::runtime_error("Fcntl failed: " + std::string(strerror(errno)));
+    }
+
+    // 7. Configuration de poll (comme dans ta version originale)
+    struct pollfd pfd;
+    pfd.fd = _serverFd;
+    pfd.events = POLLIN;
+    pfd.revents = 0;
+    _fds.push_back(pfd);
+
+    std::cout << GREEN << "Server started on port " << _port << RESET << std::endl;
 }
 
 void Server::closeFds()
@@ -202,6 +212,13 @@ void Server::handleMessage(int clientFd)
 			handleQuit(client);
 		else if (command == "KICK")
 			handleKick(client, iss);
+            // Dans handleMessage, ajoutez ces conditions :
+        else if (command == "INVITE")
+            handleInvite(client, iss);
+        else if (command == "TOPIC")
+            handleTopic(client, iss);
+        else if (command == "MODE")
+            handleMode(client, iss);
 	}
 
 }
@@ -409,42 +426,47 @@ void Server::handlePrivmsg(Client *client, std::istringstream &iss)
 
 //                                Channel
 
-void Server::createChannel(std::istringstream& iss, Client* client) 
-{
-	std::string channelName;
-    iss >> channelName;
+void Server::createChannel(std::istringstream& iss, Client* client) {
+    std::string channelName, password;
+    iss >> channelName >> password;
 
-	if (!isRegistered(client))
-    {
+    if (!isRegistered(client)) {
         send(client->getFd(), CYAN "~> You must set your nickname and user information first\n" RESET, 69, 0);
         return;
     }
 
-	if (channelName.empty() || channelName[0] != '#')
-	{
-		send(client->getFd(), CYAN "~> Usage: CREATE <#channel_name>\n" RESET, 44, 0);
-        return;
-	}
-
-	// Channel existe deja
-    if (_channels.find(channelName) != _channels.end()) 
-	{
-		std::map<std::string, Channel>::iterator it = _channels.find(channelName);
-		it->second.addClient(client);
+    if (channelName.empty() || channelName[0] != '#') {
+        send(client->getFd(), CYAN "~> Usage: JOIN <#channel> [password]\n" RESET, 44, 0);
         return;
     }
-    
-    std::pair<std::map<std::string, Channel>::iterator, bool> result = _channels.insert(std::make_pair(channelName, Channel(channelName)));
 
-    if (!result.second) 
-	{
-        send(client->getFd(), CYAN "~> Failed to create channel\n" RESET, 39, 0);
+    // Une seule déclaration de 'it'
+    std::map<std::string, Channel>::iterator it = _channels.find(channelName);
+
+    // Channel existe déjà
+    if (it != _channels.end()) {
+        // Vérifier le mot de passe si nécessaire
+        if (!it->second.getPassword().empty() && it->second.getPassword() != password) {
+            send(client->getFd(), CYAN "~> Invalid channel password\n" RESET, 35, 0);
+            return;
+        }
+        
+        // Vérifier le mode +i
+        if (it->second.getInviteOnly() && !it->second.isInvited(client->getNickname())) {
+            send(client->getFd(), CYAN "~> Channel is invite-only\n" RESET, 36, 0);
+            return;
+        }
+
+        it->second.addClient(client);
         return;
     }
-    
 
-    // Ajouter le client au channel
-	std::map<std::string, Channel>::iterator it = _channels.find(channelName);
+    // Créer un nouveau channel
+    Channel newChannel(channelName);
+    _channels.insert(std::make_pair(channelName, newChannel));
+    
+    // Réutiliser le même iterator
+    it = _channels.find(channelName);
     it->second.addClient(client);
 
     std::cout << GREEN << "Channel created: " << channelName << RESET << std::endl;
@@ -572,4 +594,220 @@ void Server::handleKick(Client* client, std::istringstream& iss)
 
     // Retirer la cible du channel
     channel.removeClient(target);
+}
+
+// Gestion de la commande INVITE
+void Server::handleInvite(Client* client, std::istringstream& iss) {
+    std::string targetNick, channelName;
+    iss >> targetNick >> channelName;
+
+    if (targetNick.empty() || channelName.empty()) {
+        send(client->getFd(), CYAN "~> Usage: INVITE <nickname> <channel>\n" RESET, 45, 0);
+        return;
+    }
+
+    // Vérifier que le channel existe
+    std::map<std::string, Channel>::iterator it = _channels.find(channelName);
+    if (it == _channels.end()) {
+        send(client->getFd(), CYAN "~> Channel does not exist\n" RESET, 37, 0);
+        return;
+    }
+
+    // Vérifier que l'expéditeur est opérateur
+    if (!it->second.isOperator(client)) {
+        send(client->getFd(), CYAN "~> You're not channel operator\n" RESET, 42, 0);
+        return;
+    }
+
+    // Trouver le client cible
+    Client* target = NULL;
+    for (size_t i = 0; i < _clients.size(); i++) {
+        if (_clients[i]->getNickname() == targetNick) {
+            target = _clients[i];
+            break;
+        }
+    }
+
+    if (!target) {
+        send(client->getFd(), CYAN "~> Nickname not found\n" RESET, 34, 0);
+        return;
+    }
+
+    // Ajouter à la liste des invités
+    it->second.addInvited(targetNick);
+
+    // Envoyer les notifications
+    std::string msgToInviter = MAGENTA "~> " + targetNick + " invited to " + channelName + "\n" RESET;
+    send(client->getFd(), msgToInviter.c_str(), msgToInviter.size(), 0);
+
+    std::string msgToTarget = ":" + client->getNickname() + " INVITE " + targetNick + " " + channelName + "\r\n";
+    send(target->getFd(), msgToTarget.c_str(), msgToTarget.size(), 0);
+}
+
+// Gestion de la commande TOPIC
+void Server::handleTopic(Client* client, std::istringstream& iss) {
+    std::string channelName, newTopic;
+    iss >> channelName;
+    std::getline(iss, newTopic);
+
+    // Nettoyer le topic
+    if (!newTopic.empty() && newTopic[0] == ' ')
+        newTopic = newTopic.substr(1);
+    if (!newTopic.empty() && newTopic[0] == ':')
+        newTopic = newTopic.substr(1);
+
+    // Vérifier que le channel existe
+    std::map<std::string, Channel>::iterator it = _channels.find(channelName);
+    if (it == _channels.end()) {
+        send(client->getFd(), CYAN "~> Channel does not exist\n" RESET, 37, 0);
+        return;
+    }
+
+    // Si pas de nouveau topic, afficher le topic actuel
+    if (newTopic.empty()) {
+        std::string currentTopic = it->second.getTopic();
+        if (currentTopic.empty()) {
+            send(client->getFd(), CYAN "~> No topic is set\n" RESET, 30, 0);
+        } else {
+            std::string msg = MAGENTA "~> Topic for " + channelName + ": " + currentTopic + "\n" RESET;
+            send(client->getFd(), msg.c_str(), msg.size(), 0);
+        }
+        return;
+    }
+
+    // Vérifier les permissions pour changer le topic
+    if (it->second.getTopicRestricted() && !it->second.isOperator(client)) {
+        send(client->getFd(), CYAN "~> You're not channel operator\n" RESET, 42, 0);
+        return;
+    }
+
+    // Changer le topic
+    it->second.setTopic(newTopic);
+
+    // Notifier tous les membres du channel
+    std::string msg = ":" + client->getNickname() + " TOPIC " + channelName + " :" + newTopic + "\r\n";
+    const std::vector<Client*>& members = it->second.getClients();
+    for (size_t i = 0; i < members.size(); ++i) {
+        send(members[i]->getFd(), msg.c_str(), msg.size(), 0);
+    }
+}
+
+// Gestion de la commande MODE
+void Server::handleMode(Client* client, std::istringstream& iss) {
+    std::string target, mode, arg;
+    iss >> target >> mode;
+
+    // Vérifier que la cible est un channel
+    if (target.empty() || target[0] != '#') {
+        send(client->getFd(), CYAN "~> MODE is only supported for channels\n" RESET, 49, 0);
+        return;
+    }
+
+    // Vérifier que le channel existe
+    std::map<std::string, Channel>::iterator it = _channels.find(target);
+    if (it == _channels.end()) {
+        send(client->getFd(), CYAN "~> Channel does not exist\n" RESET, 37, 0);
+        return;
+    }
+
+    // Vérifier que l'expéditeur est opérateur
+    if (!it->second.isOperator(client)) {
+        send(client->getFd(), CYAN "~> You're not channel operator\n" RESET, 42, 0);
+        return;
+    }
+
+    // Si pas de mode, afficher les modes actuels
+    if (mode.empty()) {
+        std::string modes = "+";
+        if (it->second.getInviteOnly()) modes += "i";
+        if (it->second.getTopicRestricted()) modes += "t";
+        if (!it->second.getPassword().empty()) modes += "k";
+        if (it->second.getMaxClients() > 0) modes += "l";
+        
+        std::string msg = MAGENTA "~> Current modes for " + target + ": " + modes + "\n" RESET;
+        send(client->getFd(), msg.c_str(), msg.size(), 0);
+        return;
+    }
+
+    // Traiter les modes
+    bool addMode = (mode[0] == '+');
+    char modeChar = mode[1];
+    iss >> arg;
+
+    switch (modeChar) {
+        case 'i': // Mode invitation seulement
+            it->second.setInviteOnly(addMode);
+            break;
+        case 't': // Restriction du topic aux ops
+            it->second.setTopicRestricted(addMode);
+            break;
+        case 'k': // Mot de passe du channel
+    if (addMode) {
+        if (arg.empty()) {
+            send(client->getFd(), CYAN "~> Missing password argument\n" RESET, 38, 0);
+            return;
+        }
+        it->second.setPassword(arg);
+    } else {
+        it->second.setPassword("");
+        // Envoyer une notification que le mot de passe est supprimé
+        std::string msg = ":" + client->getNickname() + " MODE " + target + " -k\r\n";
+        send(client->getFd(), msg.c_str(), msg.size(), 0);
+    }
+    break;
+        case 'o': // Donner/retirer le statut opérateur
+            {
+                if (arg.empty()) {
+                    send(client->getFd(), CYAN "~> Missing nickname argument\n" RESET, 39, 0);
+                    return;
+                }
+                Client* targetClient = NULL;
+                const std::vector<Client*>& members = it->second.getClients();
+                for (size_t i = 0; i < members.size(); ++i) {
+                    if (members[i]->getNickname() == arg) {
+                        targetClient = members[i];
+                        break;
+                    }
+                }
+                if (!targetClient) {
+                    send(client->getFd(), CYAN "~> Nickname not in channel\n" RESET, 37, 0);
+                    return;
+                }
+                if (addMode) {
+                    it->second.addOperator(targetClient);
+                } else {
+                    it->second.removeOperator(targetClient);
+                }
+            }
+            break;
+        case 'l': // Limite d'utilisateurs
+            if (addMode) {
+                if (arg.empty()) {
+                    send(client->getFd(), CYAN "~> Missing limit argument\n" RESET, 37, 0);
+                    return;
+                }
+                int limit = atoi(arg.c_str());
+                if (limit <= 0) {
+                    send(client->getFd(), CYAN "~> Invalid limit value\n" RESET, 35, 0);
+                    return;
+                }
+                it->second.setMaxClients(limit);
+            } else {
+                it->second.setMaxClients(-1);
+            }
+            break;
+        default:
+            send(client->getFd(), CYAN "~> Unknown mode\n" RESET, 29, 0);
+            return;
+    }
+
+    // Notifier le changement de mode
+    std::string modeMsg = ":" + client->getNickname() + " MODE " + target + " " + mode;
+    if (!arg.empty()) modeMsg += " " + arg;
+    modeMsg += "\r\n";
+
+    const std::vector<Client*>& members = it->second.getClients();
+    for (size_t i = 0; i < members.size(); ++i) {
+        send(members[i]->getFd(), modeMsg.c_str(), modeMsg.size(), 0);
+    }
 }
