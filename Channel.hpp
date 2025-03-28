@@ -43,7 +43,8 @@ class Channel
 		~Channel();
 
 		// Gestion des clients
-		void addClient(Client* client);
+		void broadcast(const std::string& message);
+        void addClient(Client* client, const std::string& password);
 		void removeClient(Client* client);
 		const std::vector<Client*>& getClients() const;
 

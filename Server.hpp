@@ -43,13 +43,15 @@ class Server
 		void startServer();
 		void acceptClient();
 		void handleMessage(int client_fd);
+        void handlePass(Client* client, std::istringstream& iss);
 		void removeClient(int client_fd);
+
+		static const std::string VALID_COMMANDS[11];
 
 		// Channel
 		std::map<std::string, Channel> _channels;
 
-
-	public : 
+	public:
 		Server(const std::string &port, const std::string &password);
 		~Server();
 		

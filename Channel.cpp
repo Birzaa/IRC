@@ -72,44 +72,42 @@ void Channel::setTopicRestricted(bool restricted) {
     _topicRestricted = restricted;
 }
 
+void Channel::broadcast(const std::string& message) {
+    for (size_t i = 0; i < _clients.size(); ++i) {
+        send(_clients[i]->getFd(), message.c_str(), message.size(), 0);
+    }
+}
+
 //                     Gestion des clients
 
-void Channel::addClient(Client* client) {
-    
-     if (_inviteOnly && !isInvited(client->getNickname())) {
-        send(client->getFd(), CYAN "~> Channel is invite-only (use /INVITE)\n" RESET, 47, 0);
+void Channel::addClient(Client* client, const std::string& password) {
+    // 1. Vérifier la limite d'utilisateurs (+l)
+    if (_maxClients > 0 && _clients.size() >= static_cast<size_t>(_maxClients)) {
+        send(client->getFd(), ":SERVER 471 #general :Cannot join channel (+l)\r\n", 46, 0);
         return;
     }
 
-    // Vérifier la limite d'utilisateurs
-    if (_maxClients > 0 && _clients.size() >= (size_t)_maxClients) {
-        send(client->getFd(), CYAN "~> Channel is full\n" RESET, 24, 0);
+    // 2. Vérifier le mot de passe (+k) si fourni
+    if (!_password.empty() && _password != password) {
+        send(client->getFd(), ":SERVER 475 #general :Bad channel key\r\n", 40, 0);
         return;
     }
-    
-    // Vérifier le mode invitation seulement
+
+    // 3. Vérifier le mode invitation (+i)
     if (_inviteOnly && !isInvited(client->getNickname())) {
-        send(client->getFd(), CYAN "~> Channel is invite-only\n" RESET, 36, 0);
+        send(client->getFd(), ":SERVER 473 #general :Invite-only channel\r\n", 43, 0);
         return;
     }
 
-    
-    // Vérifier si déjà dans le channel
-    if (std::find(_clients.begin(), _clients.end(), client) != _clients.end()) {
-        send(client->getFd(), CYAN "~> Already in the channel\n" RESET, 37, 0);
-        return;
-    }
-
-    // Ajouter le client
-    if (_clients.empty())
-        _operators.push_back(client);
+    // 4. Ajouter le client
     _clients.push_back(client);
-    
-    // Retirer de la liste d'invités si nécessaire
-    _invited.erase(std::remove(_invited.begin(), _invited.end(), client->getNickname()), _invited.end());
-    
-    send(client->getFd(), (MAGENTA "~> You joined the channel\n" RESET), 37, 0);
-    alertAll(client->getNickname(), "joined the channel");
+    if (_clients.size() == 1) { // Premier client = OP
+        _operators.push_back(client);
+    }
+
+    // Notification IRC standard
+    std::string msg = ":" + client->getNickname() + "!" + client->getUsername() + "@localhost JOIN :" + _name + "\r\n";
+    broadcast(msg);
 }
 
 void Channel::alertAll(const std::string& nickname, const std::string& msg) {

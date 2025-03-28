@@ -1,5 +1,11 @@
 #include "Server.hpp"
 
+// Initialisation des constantes (C++98 compatible)
+const std::string Server::VALID_COMMANDS[11] = {
+    "PASS", "NICK", "USER", "JOIN", "PART", "PRIVMSG",
+    "MODE", "TOPIC", "INVITE", "KICK", "QUIT"
+};
+
 Server::Server(const std::string &port, const std::string &password)
 {
 	this->_port = atoi(port.c_str());
@@ -137,90 +143,123 @@ void Server::acceptClient()
 	std::cout << BLUE <<"New client connected : FD " << clientFd << RESET << std::endl;
 }
 
-void Server::handleMessage(int clientFd) 
-{
-    char buffer[512];
+void Server::handlePass(Client* client, std::istringstream& iss) {
+    std::string password;
+    iss >> password;
 
-	// Recevoir le message du client et le stocker dans le buffer
+    // Nettoyer le mot de passe (retirer \r, \n, etc.)
+    password.erase(std::remove(password.begin(), password.end(), '\r'), password.end());
+    password.erase(std::remove(password.begin(), password.end(), '\n'), password.end());
+
+    // Cas 1: Mot de passe vide
+    if (password.empty()) {
+        send(client->getFd(), ":SERVER 461 PASS :Not enough parameters\r\n", 41, 0);
+        return;
+    }
+
+    // Cas 2: Client déjà authentifié
+    if (client->getAuthenticated()) {
+        send(client->getFd(), ":SERVER 462 :You may not reregister\r\n", 36, 0);
+        return;
+    }
+
+    // Cas 3: Mot de passe correct
+    if (password == _password) {
+        client->setAuthenticated(true);
+        client->authAttempts = 3; // Réinitialiser les tentatives
+        send(client->getFd(), ":SERVER 001 :Password accepted\r\n", 32, 0);
+    } 
+    // Cas 4: Mot de passe incorrect
+    else {
+        client->authAttempts--;
+        
+        if (client->authAttempts <= 0) {
+            std::string msg = ":SERVER 464 :Too many invalid password attempts. Disconnecting.\r\n";
+            send(client->getFd(), msg.c_str(), msg.size(), 0);
+            removeClient(client->getFd());
+        } else {
+            std::string msg = ":SERVER 464 PASS :Invalid password. " + 
+                             std::to_string(client->authAttempts) + " attempts remaining.\r\n";
+            send(client->getFd(), msg.c_str(), msg.size(), 0);
+        }
+    }
+}
+
+void Server::handleMessage(int clientFd) {
+    char buffer[1024];
     ssize_t bytes_received = recv(clientFd, buffer, sizeof(buffer) - 1, 0);
 
-    if (bytes_received <= 0) 
-	{
-        std::cout << ORANGE << "Client déconnecté: FD " << clientFd << RESET << std::endl;
+    // Gestion de la déconnexion
+    if (bytes_received <= 0) {
+        std::cout << ORANGE << "Client disconnected: FD " << clientFd << RESET << std::endl;
         removeClient(clientFd);
         return;
     }
 
     buffer[bytes_received] = '\0';
-    std::string message(buffer); // convert buffer to string
-	message.erase(message.find_last_not_of(" \n\r\t") + 1);
-	if (message.empty())
+    std::string message(buffer);
+    message.erase(message.find_last_not_of(" \r\n\t") + 1);
+
+    if (message.empty()) return;
+
+    Client* client = getClientByFd(clientFd);
+    if (!client) {
+        std::cerr << RED << "Client not found for FD " << clientFd << RESET << std::endl;
         return;
+    }
 
-	Client *client = getClientByFd(clientFd);
-	if (!client)
-		throw std::runtime_error("Client not found");
-	
-	// Vérification du mot de passe
-	if (!client->getAuthenticated())
-	{
-		if (message.substr(0, 5) == "PASS ")
-		{
-			std::string pass = message.substr(5);
-			pass.erase(std::remove(pass.begin(), pass.end(), '\n'), pass.end());
-			if (pass == this->_password)
-			{
-				client->setAuthenticated(true);
-				client->authAttempts = 3;
-				send(clientFd, MAGENTA "~> Password accepted\n" RESET, 33, 0);
-			}
-			else
-			{
-				client->authAttempts--;
-				if (client->authAttempts == 0)
-				{
-					send(clientFd, BOLD_RED"~> Too many authentication attempts\n" RESET, 48, 0);
-					removeClient(clientFd);
-				}
-				else
-					send(clientFd, CYAN "~> Password refused\n" RESET, 32, 0);
-			}
-		}
-		else
-			send(clientFd, CYAN "~> Please authenticate with PASS <password>\n" RESET, 56, 0);
-	}
+    // Journalisation (debug)
+    std::cout << CYAN << "[FD " << clientFd << "] " << message << RESET << std::endl;
 
-	
-	// Gerer les messages quand on est connecté
-	if (client->getAuthenticated()) 
-	{
-		std::istringstream iss(message);
-		std::string command;
-		iss >> command;
+    std::istringstream iss(message);
+    std::string command;
+    iss >> command;
 
-		if (command == "NICK")
-			handleNick(client, iss);
-		else if (command == "USER")
-			handleUser(client, iss);
-		else if (command == "PRIVMSG")
-			handlePrivmsg(client, iss);
-		else if (command == "JOIN")
-			createChannel(iss, client);
-		else if (command == "PART")
-			handlePart(client, iss);
-		else if (command == "QUIT")
-			handleQuit(client);
-		else if (command == "KICK")
-			handleKick(client, iss);
-            // Dans handleMessage, ajoutez ces conditions :
-        else if (command == "INVITE")
-            handleInvite(client, iss);
-        else if (command == "TOPIC")
-            handleTopic(client, iss);
-        else if (command == "MODE")
-            handleMode(client, iss);
-	}
+    // Liste des commandes valides (à adapter selon vos besoins)
+    const std::string validCommands[] = {
+        "PASS", "NICK", "USER", "JOIN", "PART", "PRIVMSG",
+        "MODE", "TOPIC", "INVITE", "KICK", "QUIT"
+    };
 
+    // Vérification de la commande
+    bool isValidCommand = false;
+    for (size_t i = 0; i < sizeof(validCommands)/sizeof(validCommands[0]); ++i) {
+        if (command == validCommands[i]) {
+            isValidCommand = true;
+            break;
+        }
+    }
+
+    // Réponse aux commandes inconnues
+    if (!isValidCommand) {
+        std::string errorMsg = ":SERVER 421 " + command + " :Unknown command\r\n";
+        send(clientFd, errorMsg.c_str(), errorMsg.size(), 0);
+        return;
+    }
+
+    // Gestion de l'authentification
+    if (!client->getAuthenticated() && command != "PASS") {
+        send(clientFd, ":SERVER 451 :You must authenticate first\r\n", 41, 0);
+        return;
+    }
+
+    // Traitement des commandes
+    try {
+        if (command == "PASS") handlePass(client, iss);
+        else if (command == "NICK") handleNick(client, iss);
+        else if (command == "USER") handleUser(client, iss);
+        else if (command == "JOIN") createChannel(iss, client);
+        else if (command == "PART") handlePart(client, iss);
+        else if (command == "PRIVMSG") handlePrivmsg(client, iss);
+        else if (command == "MODE") handleMode(client, iss);
+        else if (command == "TOPIC") handleTopic(client, iss);
+        else if (command == "INVITE") handleInvite(client, iss);
+        else if (command == "KICK") handleKick(client, iss);
+        else if (command == "QUIT") handleQuit(client);
+    } catch (const std::exception& e) {
+        std::string errorMsg = ":SERVER 500 :Error processing command: " + std::string(e.what()) + "\r\n";
+        send(clientFd, errorMsg.c_str(), errorMsg.size(), 0);
+    }
 }
 
 void Server::removeClient(int clientFd) 
@@ -430,46 +469,23 @@ void Server::createChannel(std::istringstream& iss, Client* client) {
     std::string channelName, password;
     iss >> channelName >> password;
 
-    if (!isRegistered(client)) {
-        send(client->getFd(), CYAN "~> You must set your nickname and user information first\n" RESET, 69, 0);
-        return;
-    }
-
+    // Validation basique
     if (channelName.empty() || channelName[0] != '#') {
-        send(client->getFd(), CYAN "~> Usage: JOIN <#channel> [password]\n" RESET, 44, 0);
+        send(client->getFd(), ":SERVER 461 JOIN :Invalid channel name\r\n", 40, 0);
         return;
     }
 
-    // Une seule déclaration de 'it'
+    // Recherche ou création du channel
     std::map<std::string, Channel>::iterator it = _channels.find(channelName);
-
-    // Channel existe déjà
-    if (it != _channels.end()) {
-        // Vérifier le mot de passe si nécessaire
-        if (!it->second.getPassword().empty() && it->second.getPassword() != password) {
-            send(client->getFd(), CYAN "~> Invalid channel password\n" RESET, 35, 0);
-            return;
-        }
-        
-        // Vérifier le mode +i
-        if (it->second.getInviteOnly() && !it->second.isInvited(client->getNickname())) {
-            send(client->getFd(), CYAN "~> Channel is invite-only\n" RESET, 36, 0);
-            return;
-        }
-
-        it->second.addClient(client);
-        return;
+    if (it == _channels.end()) {
+        // Création d'un nouveau channel
+        Channel newChannel(channelName);
+        _channels.insert(std::make_pair(channelName, newChannel));
+        it = _channels.find(channelName);
     }
 
-    // Créer un nouveau channel
-    Channel newChannel(channelName);
-    _channels.insert(std::make_pair(channelName, newChannel));
-    
-    // Réutiliser le même iterator
-    it = _channels.find(channelName);
-    it->second.addClient(client);
-
-    std::cout << GREEN << "Channel created: " << channelName << RESET << std::endl;
+    // Tentative de rejoindre
+    it->second.addClient(client, password);
 }
 
 void Server::handlePart(Client* client, std::istringstream& iss) 
