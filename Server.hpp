@@ -15,6 +15,7 @@
 #include <algorithm> // remove
 #include <sstream> // istringstream
 #include <map>
+#include <string>
 
 
 #define GREEN   "\033[0;32m"
@@ -31,13 +32,14 @@
 #include "Client.hpp"
 #include "Channel.hpp"
 
-class Server 
+class Server : public Channel
 {
 	private :
 		int _serverFd, _port;
 		std::string _password;
 		std::vector<Client*> _clients; // all clients
 		std::vector<pollfd> _fds; // list of file descriptors
+		std::string _serverHost;
 
 		void initSocket();
 		void startServer();
@@ -65,9 +67,13 @@ class Server
 
 		// Client methods
 		void handleNick(Client *client, std::istringstream &iss);
+    	std::string getClientHostmask(Client* client) const;
 		void handleUser(Client *client, std::istringstream &iss);
 		void handlePrivmsg(Client *client, std::istringstream &iss);
 		bool isRegistered(Client *client);
+		// Client* getClientByNick(const std::string& nickname);
+		// bool isValidNick(const std::string& nickname);
+		void sendWelcomeMessage(Client* client);
 
 		// Channel
 		void createChannel(std::istringstream& channelName, Client* client);

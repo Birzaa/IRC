@@ -10,6 +10,7 @@ Server::Server(const std::string &port, const std::string &password)
 {
 	this->_port = atoi(port.c_str());
 	this->_password = password;
+    this->_serverHost = "localhost";
 }
 
 Server::~Server()
@@ -26,54 +27,54 @@ void Server::initServer()
 	startServer();
 }
 
-void Server::initSocket() {
-    // 1. Création du socket
-    _serverFd = socket(AF_INET, SOCK_STREAM, 0);
-    if (_serverFd == -1) {
-        throw std::runtime_error("Socket creation failed: " + std::string(strerror(errno)));
-    }
+// void Server::initSocket() {
+//     // 1. Création du socket
+//     _serverFd = socket(AF_INET, SOCK_STREAM, 0);
+//     if (_serverFd == -1) {
+//         throw std::runtime_error("Socket creation failed: " + std::string(strerror(errno)));
+//     }
 
-    // 2. Configuration des options (macOS compatible)
-    int opt = 1;
-    if (setsockopt(_serverFd, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt)) < 0) {
-        close(_serverFd);
-        throw std::runtime_error("Setsockopt failed: " + std::string(strerror(errno)));
-    }
+//     // 2. Configuration des options (macOS compatible)
+//     int opt = 1;
+//     if (setsockopt(_serverFd, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt)) < 0) {
+//         close(_serverFd);
+//         throw std::runtime_error("Setsockopt failed: " + std::string(strerror(errno)));
+//     }
 
-    // 3. Configuration de l'adresse
-    struct sockaddr_in serverAddr;
-    memset(&serverAddr, 0, sizeof(serverAddr)); // Initialisation propre
-    serverAddr.sin_family = AF_INET;
-    serverAddr.sin_addr.s_addr = INADDR_ANY;
-    serverAddr.sin_port = htons(_port);
+//     // 3. Configuration de l'adresse
+//     struct sockaddr_in serverAddr;
+//     memset(&serverAddr, 0, sizeof(serverAddr)); // Initialisation propre
+//     serverAddr.sin_family = AF_INET;
+//     serverAddr.sin_addr.s_addr = INADDR_ANY;
+//     serverAddr.sin_port = htons(_port);
 
-    // 4. Bind
-    if (bind(_serverFd, (struct sockaddr*)&serverAddr, sizeof(serverAddr)) < 0) {
-        close(_serverFd);
-        throw std::runtime_error("Bind failed: " + std::string(strerror(errno)));
-    }
+//     // 4. Bind
+//     if (bind(_serverFd, (struct sockaddr*)&serverAddr, sizeof(serverAddr)) < 0) {
+//         close(_serverFd);
+//         throw std::runtime_error("Bind failed: " + std::string(strerror(errno)));
+//     }
 
-    // 5. Listen
-    if (listen(_serverFd, SOMAXCONN) < 0) {
-        close(_serverFd);
-        throw std::runtime_error("Listen failed: " + std::string(strerror(errno)));
-    }
+//     // 5. Listen
+//     if (listen(_serverFd, SOMAXCONN) < 0) {
+//         close(_serverFd);
+//         throw std::runtime_error("Listen failed: " + std::string(strerror(errno)));
+//     }
 
-    // 6. Mode non-bloquant (comme dans ta version originale)
-    if (fcntl(_serverFd, F_SETFL, O_NONBLOCK) < 0) {
-        close(_serverFd);
-        throw std::runtime_error("Fcntl failed: " + std::string(strerror(errno)));
-    }
+//     // 6. Mode non-bloquant (comme dans ta version originale)
+//     if (fcntl(_serverFd, F_SETFL, O_NONBLOCK) < 0) {
+//         close(_serverFd);
+//         throw std::runtime_error("Fcntl failed: " + std::string(strerror(errno)));
+//     }
 
-    // 7. Configuration de poll (comme dans ta version originale)
-    struct pollfd pfd;
-    pfd.fd = _serverFd;
-    pfd.events = POLLIN;
-    pfd.revents = 0;
-    _fds.push_back(pfd);
+//     // 7. Configuration de poll (comme dans ta version originale)
+//     struct pollfd pfd;
+//     pfd.fd = _serverFd;
+//     pfd.events = POLLIN;
+//     pfd.revents = 0;
+//     _fds.push_back(pfd);
 
-    std::cout << GREEN << "Server started on port " << _port << RESET << std::endl;
-}
+//     std::cout << GREEN << "Server started on port " << _port << RESET << std::endl;
+// }
 
 void Server::closeFds()
 {
@@ -84,6 +85,45 @@ void Server::closeFds()
 	}
 	if (this->_serverFd >= 0)
 		close(this->_serverFd);
+}
+
+void Server::initSocket()
+{
+    // Create a socket
+    this->_serverFd = socket(AF_INET, SOCK_STREAM, 0);
+    if (this->_serverFd == -1)
+        throw std::runtime_error("Socket creation failed");
+
+    // Set the socket options
+    int opt = 1;
+    if (setsockopt(this->_serverFd, SOL_SOCKET, SO_REUSEADDR | SO_REUSEPORT, &opt, sizeof(opt)) == -1)
+        throw std::runtime_error("Setsockopt failed");
+
+    // set server configuration
+    struct sockaddr_in serverAddr;
+    serverAddr.sin_family = AF_INET; // use IPv4
+    serverAddr.sin_addr.s_addr = INADDR_ANY; // accept all connexions
+    serverAddr.sin_port = htons(this->_port); //convert port to network language
+
+    // Bind the socket to the address and port
+    if (bind(this->_serverFd, (struct sockaddr *)&serverAddr, sizeof(serverAddr)) == -1)
+        throw std::runtime_error("Bind failed");
+
+    // Listen for incoming connexions
+    if (listen(this->_serverFd, SOMAXCONN) == -1)
+        throw std::runtime_error("Listen failed");
+
+    // modifing the socket to non-blocking 
+    if(fcntl(this->_serverFd, F_SETFL, O_NONBLOCK) == -1)
+        throw std::runtime_error("Fcntl failed");
+
+    // add server to poll()
+    struct pollfd pfd;
+    pfd.fd = this->_serverFd; // add the server socket to the poll watch list
+    pfd.events = POLLIN; // check if there is data to read (ex : new client)
+    this->_fds.push_back(pfd); // store the server socket in the poll list
+
+    std::cout << GREEN << "Server started on port " << this->_port << RESET << std::endl;
 }
 
 void Server::startServer()
@@ -153,13 +193,15 @@ void Server::handlePass(Client* client, std::istringstream& iss) {
 
     // Cas 1: Mot de passe vide
     if (password.empty()) {
-        send(client->getFd(), ":SERVER 461 PASS :Not enough parameters\r\n", 41, 0);
+        std::string response = ":" + _serverHost + " 461 " + (client->getNickname().empty() ? "*" : client->getNickname()) + " PASS :Not enough parameters\r\n";
+        send(client->getFd(), response.c_str(), response.size(), 0);
         return;
     }
 
     // Cas 2: Client déjà authentifié
     if (client->getAuthenticated()) {
-        send(client->getFd(), ":SERVER 462 :You may not reregister\r\n", 36, 0);
+        std::string response = ":" + _serverHost + " 462 " + client->getNickname() + " :You may not reregister\r\n";
+        send(client->getFd(), response.c_str(), response.size(), 0);
         return;
     }
 
@@ -167,20 +209,19 @@ void Server::handlePass(Client* client, std::istringstream& iss) {
     if (password == _password) {
         client->setAuthenticated(true);
         client->authAttempts = 3; // Réinitialiser les tentatives
-        send(client->getFd(), ":SERVER 001 :Password accepted\r\n", 32, 0);
-    } 
+    }
+
     // Cas 4: Mot de passe incorrect
     else {
         client->authAttempts--;
-        
+
         if (client->authAttempts <= 0) {
-            std::string msg = ":SERVER 464 :Too many invalid password attempts. Disconnecting.\r\n";
-            send(client->getFd(), msg.c_str(), msg.size(), 0);
+            std::string errorMsg = ":" + _serverHost + " 464 " + (client->getNickname().empty() ? "*" : client->getNickname()) + " :Password incorrect - Too many attempts\r\n";
+            send(client->getFd(), errorMsg.c_str(), errorMsg.size(), 0);
             removeClient(client->getFd());
         } else {
-            std::string msg = ":SERVER 464 PASS :Invalid password. " + 
-                             std::to_string(client->authAttempts) + " attempts remaining.\r\n";
-            send(client->getFd(), msg.c_str(), msg.size(), 0);
+            std::string errorMsg = ":" + _serverHost + " 464 " + (client->getNickname().empty() ? "*" : client->getNickname()) + " :Password incorrect\r\n";
+            send(client->getFd(), errorMsg.c_str(), errorMsg.size(), 0);
         }
     }
 }
@@ -191,14 +232,26 @@ void Server::handleMessage(int clientFd) {
 
     // Gestion de la déconnexion
     if (bytes_received <= 0) {
-        std::cout << ORANGE << "Client disconnected: FD " << clientFd << RESET << std::endl;
-        removeClient(clientFd);
+        Client* client = getClientByFd(clientFd);
+        if (client) {
+            handleQuit(client);
+        } else {
+            std::cout << ORANGE << "Unknown client disconnected (FD " 
+                     << clientFd << ")" << RESET << std::endl;
+            removeClient(clientFd);
+        }
         return;
     }
 
     buffer[bytes_received] = '\0';
     std::string message(buffer);
-    message.erase(message.find_last_not_of(" \r\n\t") + 1);
+
+    // Nettoyage du message 
+    message.erase(std::remove(message.begin(), message.end(), '\r'), message.end());
+    size_t endpos = message.find_last_not_of("\n\t ");
+    if (endpos != std::string::npos) {
+        message.erase(endpos + 1);
+    }
 
     if (message.empty()) return;
 
@@ -208,42 +261,36 @@ void Server::handleMessage(int clientFd) {
         return;
     }
 
-    // Journalisation (debug)
-    std::cout << CYAN << "[FD " << clientFd << "] " << message << RESET << std::endl;
-
     std::istringstream iss(message);
     std::string command;
     iss >> command;
+    std::transform(command.begin(), command.end(), command.begin(), ::toupper);
 
-    // Liste des commandes valides (à adapter selon vos besoins)
-    const std::string validCommands[] = {
-        "PASS", "NICK", "USER", "JOIN", "PART", "PRIVMSG",
-        "MODE", "TOPIC", "INVITE", "KICK", "QUIT"
-    };
-
-    // Vérification de la commande
+    // Vérification de la commande 
     bool isValidCommand = false;
-    for (size_t i = 0; i < sizeof(validCommands)/sizeof(validCommands[0]); ++i) {
-        if (command == validCommands[i]) {
+    for (size_t i = 0; i < sizeof(VALID_COMMANDS)/sizeof(VALID_COMMANDS[0]); ++i) {
+        if (command == VALID_COMMANDS[i]) {
             isValidCommand = true;
             break;
         }
     }
 
-    // Réponse aux commandes inconnues
     if (!isValidCommand) {
-        std::string errorMsg = ":SERVER 421 " + command + " :Unknown command\r\n";
+        std::string errorMsg = ":" + _serverHost + " 421 " + (client->getNickname().empty() ? "*" : client->getNickname()) 
+                            + " " + command + " :Unknown command\r\n";
         send(clientFd, errorMsg.c_str(), errorMsg.size(), 0);
         return;
     }
 
-    // Gestion de l'authentification
+    // Gestion de l'authentification 
     if (!client->getAuthenticated() && command != "PASS") {
-        send(clientFd, ":SERVER 451 :You must authenticate first\r\n", 41, 0);
+        std::string errorMsg = ":" + _serverHost + " 451 " + (client->getNickname().empty() ? "*" : client->getNickname()) 
+                            + " :You must authenticate first\r\n";
+        send(clientFd, errorMsg.c_str(), errorMsg.size(), 0);
         return;
     }
 
-    // Traitement des commandes
+    // Traitement des commandes avec gestion d'erreur
     try {
         if (command == "PASS") handlePass(client, iss);
         else if (command == "NICK") handleNick(client, iss);
@@ -257,8 +304,11 @@ void Server::handleMessage(int clientFd) {
         else if (command == "KICK") handleKick(client, iss);
         else if (command == "QUIT") handleQuit(client);
     } catch (const std::exception& e) {
-        std::string errorMsg = ":SERVER 500 :Error processing command: " + std::string(e.what()) + "\r\n";
+        std::string errorMsg = ":" + _serverHost + " 500 " + (client->getNickname().empty() ? "*" : client->getNickname()) 
+                            + " :Error processing command: " + std::string(e.what()) + "\r\n";
         send(clientFd, errorMsg.c_str(), errorMsg.size(), 0);
+        std::cerr << RED << "Error processing command from FD " << clientFd 
+                 << ": " << e.what() << RESET << std::endl;
     }
 }
 
@@ -307,157 +357,234 @@ Client* Server::getClientByFd(int fd)
     return NULL;  // Si aucun client trouvé
 }
 
-void Server::handleNick(Client *client, std::istringstream &iss)
-{
+void Server::handleNick(Client* client, std::istringstream& iss) {
     std::string nickname;
     iss >> nickname;
 
-    if (nickname.empty())
-    {
-        send(client->getFd(), CYAN "~> Usage: NICK <nickname>\n" RESET, 38, 0);
+    // Nettoyage du nickname (RFC 2812 section 2.3.1)
+    std::string::iterator it;
+    for (it = nickname.begin(); it != nickname.end(); ) {
+        if (*it == '\r' || *it == '\n') {
+            it = nickname.erase(it);
+        } else {
+            ++it;
+        }
+    }
+
+    // Cas 1: Nickname vide (RFC 2812 section 4.1.2)
+    if (nickname.empty()) {
+        std::string response = ":" + _serverHost + " 431 ";
+        response += (client->getNickname().empty() ? "*" : client->getNickname());
+        response += " :No nickname given\r\n";
+        send(client->getFd(), response.c_str(), response.size(), 0);
         return;
     }
-	 // Vérifier si le nickname est déjà pris par un autre client
-    for (size_t i = 0; i < _clients.size(); i++) 
-    {
-        if (_clients[i]->getNickname() == nickname) 
-        {
-            send(client->getFd(), CYAN"~> Nickname is already taken\n" RESET, 41, 0);
+
+    // Validation de la longueur et premier caractère (RFC 2812 section 2.3.1)
+    if (nickname.size() > 9 || !isalpha(nickname[0])) {
+        std::string response = ":" + _serverHost + " 432 ";
+        response += (client->getNickname().empty() ? "*" : client->getNickname());
+        response += " " + nickname + " :Erroneous nickname\r\n";
+        send(client->getFd(), response.c_str(), response.size(), 0);
+        return;
+    }
+
+    // Vérification des caractères valides
+    const std::string special = "[]\\`_^{|}";
+    bool valid = true;
+    for (size_t i = 1; i < nickname.size(); ++i) {
+        if (!isalnum(nickname[i]) && nickname[i] != '-' && 
+            special.find(nickname[i]) == std::string::npos) {
+            valid = false;
+            break;
+        }
+    }
+
+    if (!valid) {
+        std::string response = ":" + _serverHost + " 432 ";
+        response += (client->getNickname().empty() ? "*" : client->getNickname());
+        response += " " + nickname + " :Erroneous nickname\r\n";
+        send(client->getFd(), response.c_str(), response.size(), 0);
+        return;
+    }
+
+    // Vérification si le nickname est déjà utilisé (RFC 2812 section 4.1.2)
+    for (size_t i = 0; i < _clients.size(); i++) {
+        if (_clients[i]->getNickname() == nickname && _clients[i] != client) {
+            std::string response = ":" + _serverHost + " 433 ";
+            response += (client->getNickname().empty() ? "*" : client->getNickname());
+            response += " " + nickname + " :Nickname is already in use\r\n";
+            send(client->getFd(), response.c_str(), response.size(), 0);
             return;
         }
     }
 
+
+
+    // Notification de changement de nick (RFC 2812 section 3.1.2)
+    std::string oldNick = client->getNickname();
     client->setNickname(nickname);
-    send(client->getFd(), MAGENTA "~> Nickname set successfully\n" RESET, 41, 0);
+    
+
+
+    if (!oldNick.empty()) {
+        std::string nickChangeMsg = ":" + oldNick + "!" + client->getUsername() + "@" + client->getHostname() + " NICK :" + nickname + "\r\n";
+        
+        // Envoyer à tous les channels où est présent le client
+        std::map<std::string, Channel>::iterator chanIt;
+        for (chanIt = _channels.begin(); chanIt != _channels.end(); ++chanIt) {
+            if (chanIt->second.isMember(client)) {
+                chanIt->second.broadcast2(nickChangeMsg, client);
+            }
+        }
+        
+        // Envoyer aussi au client lui-même
+        send(client->getFd(), nickChangeMsg.c_str(), nickChangeMsg.size(), 0);
+    } else
+        // Premier enregistrement du nick
+        if (client->getAuthenticated() && !client->getUsername().empty())
+            sendWelcomeMessage(client);
 }
 
-void Server::handleUser(Client* client, std::istringstream &iss) {
+void Server::handleUser(Client* client, std::istringstream& iss) {
     std::string username, hostname, servername, realname;
 
     iss >> username >> hostname >> servername;
-    std::getline(iss, realname);  // Capturer le reste comme le vrai nom (realname)
+    std::getline(iss, realname);  // Capture le reste comme realname
 
-    // Vérifier si les informations sont valides
+    // Nettoyage de realname (supprime : et espaces en début)
+    size_t colon_pos = realname.find_first_of(":");
+    if (colon_pos != std::string::npos) {
+        realname = realname.substr(colon_pos + 1);
+    }
+    
+    // Suppression des espaces/tabulations en début/fin
+    size_t start = realname.find_first_not_of(" \t");
+    if (start != std::string::npos) {
+        realname = realname.substr(start);
+    }
+    size_t end = realname.find_last_not_of(" \t");
+    if (end != std::string::npos) {
+        realname = realname.substr(0, end + 1);
+    }
+
+    // Vérification des paramètres (RFC 2812 section 4.1.3)
     if (username.empty() || hostname.empty() || servername.empty() || realname.empty()) {
-        send(client->getFd(), CYAN "~> Usage: USER <username> <hostname> <servername> <realname>\n" RESET, 73, 0);
+        std::string response = ":" + _serverHost + " 461 ";
+        response += (client->getNickname().empty() ? "*" : client->getNickname());
+        response += " USER :Not enough parameters\r\n";
+        send(client->getFd(), response.c_str(), response.size(), 0);
         return;
     }
 
-    if (client->getUsername().empty()) 
-	{
-        client->setUsername(username);
-        client->setHostname(hostname);
-        client->setServername(servername);
-        client->setRealname(realname);
+    // Vérification si déjà enregistré (RFC 2812 section 4.1.3)
+    if (!client->getUsername().empty()) {
+        std::string response = ":" + _serverHost + " 462 ";
+        response += (client->getNickname().empty() ? "*" : client->getNickname());
+        response += " :You may not reregister\r\n";
+        send(client->getFd(), response.c_str(), response.size(), 0);
+        return;
+    }
 
-        send(client->getFd(), MAGENTA "~> User information set successfully\n" RESET, 49, 0);
-    } else
-        send(client->getFd(), CYAN "~> You have already set your user information\n" RESET, 58, 0);
+    // Enregistrement des informations utilisateur
+    client->setUsername(username);
+    client->setHostname(hostname);
+    client->setServername(servername);
+    client->setRealname(realname);
+
+    // Envoi du message de bienvenue si le nick est déjà défini (RFC 2812 section 5.1)
+    if (!client->getNickname().empty() && client->getAuthenticated())
+       sendWelcomeMessage(client);
 }
 
 bool Server::isRegistered(Client *client)
 {
-	// return !client->getNickname().empty() && !client->getUsername().empty() && !client->getHostname().empty() && !client->getServername().empty() && !client->getRealname().empty();
-	(void)client;
-	return 1;
+	return !client->getNickname().empty() && !client->getUsername().empty() && !client->getHostname().empty() && !client->getServername().empty() && !client->getRealname().empty();
+	// (void)client;
+	// return 1;
 }
 
-void Server::handlePrivmsg(Client *client, std::istringstream &iss)
-{
+void Server::handlePrivmsg(Client* client, std::istringstream& iss) {
     std::string target, message;
 
-    if (!isRegistered(client))
-    {
-        send(client->getFd(), CYAN "~> You must set your nickname and user information first\n" RESET, 69, 0);
+    // Vérification de l'enregistrement (RFC 2812 section 3.1)
+    if (!isRegistered(client)) {
+        std::string response = ":" + _serverHost + " 451 PRIVMSG :You have not registered\r\n";
+        send(client->getFd(), response.c_str(), response.size(), 0);
         return;
     }
 
-    // Extraire la cible (nickname ou channel)
+    // Extraction de la cible
     iss >> target;
     
-    // Vérification si le message est vide
+    // Extraction du message
     std::getline(iss, message);
-    message.erase(0, message.find_first_not_of(" \t")); // Supprimer les espaces/tabulations au début
-
-    if (target.empty() || message.empty())
-    {
-        send(client->getFd(), CYAN "~> Usage: PRIVMSG <target> :<message>\n" RESET, 46, 0);
+    
+    // Nettoyage du message (RFC 2812 section 2.3.1)
+    size_t start = message.find_first_not_of(" \t");
+    if (start != std::string::npos) {
+        message = message.substr(start);
+    }
+    
+    // Validation des paramètres (RFC 2812 section 4.4.1)
+    if (target.empty() || message.empty()) {
+        std::string response = ":" + _serverHost + " 461 " + client->getNickname() + " PRIVMSG :Not enough parameters\r\n";
+        send(client->getFd(), response.c_str(), response.size(), 0);
         return;
     }
 
-    // Vérifier le format du message
-    if (message[0] != ':')
-    {
-        send(client->getFd(), CYAN "~> Message must start with ':'\n" RESET, 38, 0);
+    if (message[0] != ':') {
+        std::string response = ":" + _serverHost + " 412 " + client->getNickname() + " :No text to send\r\n";
+        send(client->getFd(), response.c_str(), response.size(), 0);
         return;
     }
     message = message.substr(1); // Supprimer le ':'
 
-    // CAS 1: Message à un channel (commence par #)
-    if (target[0] == '#')
-    {
+    // Construction du préfixe d'envoi (RFC 2812 section 2.3.1)
+    std::string prefix = ":" + client->getNickname() + "!" + client->getUsername() + "@" + client->getHostname();
+
+    // CAS 1: Message à un channel (commence par # ou &)
+    if (target[0] == '#' || target[0] == '&') {
         std::map<std::string, Channel>::iterator it = _channels.find(target);
-        if (it == _channels.end())
-        {
-            send(client->getFd(), CYAN "~> Channel not found\n" RESET, 35, 0);
-            return;
-        }
-
-        // Vérifier que l'expéditeur est dans le channel
-        bool inChannel = false;
-        const std::vector<Client*>& members = it->second.getClients();
-        for (size_t i = 0; i < members.size(); ++i)
-        {
-            if (members[i]->getFd() == client->getFd())
-            {
-                inChannel = true;
-                break;
-            }
-        }
-
-        if (!inChannel)
-        {
-            send(client->getFd(), CYAN "~> You're not in this channel\n" RESET, 42, 0);
-            return;
-        }
-
-        // Envoyer le message à tous les membres du channel
-        std::string channelMsg = ":" + client->getNickname() + "!" + client->getUsername() + "@" + client->getHostname() + 
-                                " PRIVMSG " + target + " :" + message + "\r\n";
         
-        for (size_t i = 0; i < members.size(); ++i)
-        {
-            if (members[i]->getFd() != client->getFd()) // Ne pas renvoyer à l'expéditeur
-            {
-                send(members[i]->getFd(), channelMsg.c_str(), channelMsg.size(), 0);
-            }
+        // Vérification de l'existence du channel (RFC 2812 section 4.4.1)
+        if (it == _channels.end()) {
+            std::string response = ":" + _serverHost + " 403 " + client->getNickname() + " " + target + " :No such channel\r\n";
+            send(client->getFd(), response.c_str(), response.size(), 0);
+            return;
         }
-        send(client->getFd(), (MAGENTA "~> Message sent to " + target + "\n" RESET).c_str(), 32 + target.size(), 0);
+
+        // Vérification de la présence dans le channel (RFC 2812 section 4.4.1)
+        if (!it->second.isMember(client)) {
+            std::string response = ":" + _serverHost + " 404 " + client->getNickname() + " " + target + " :Cannot send to channel\r\n";
+            send(client->getFd(), response.c_str(), response.size(), 0);
+            return;
+        }
+
+        // Envoi du message au channel
+        std::string fullMsg = prefix + " PRIVMSG " + target + " :" + message + "\r\n";
+        it->second.broadcast2(fullMsg, client); // Ne renvoie pas à l'expéditeur
     }
     // CAS 2: Message privé
-    else
-    {
-        Client *recipient = NULL;
-        for (size_t i = 0; i < _clients.size(); i++) 
-        {
-            if (_clients[i]->getNickname() == target) 
-            {
+    else {
+        Client* recipient = NULL;
+        for (size_t i = 0; i < _clients.size(); ++i) {
+            if (_clients[i]->getNickname() == target) {
                 recipient = _clients[i];
                 break;
             }
         }
 
-        if (recipient) 
-        {
-            std::string privateMsg = ":" + client->getNickname() + "!" + client->getUsername() + "@" + client->getHostname() + 
-                                   " PRIVMSG " + target + " :" + message + "\r\n";
-            send(recipient->getFd(), privateMsg.c_str(), privateMsg.size(), 0);
-            send(client->getFd(), (MAGENTA "~> Message sent to " + target + "\n" RESET).c_str(), 32 + target.size(), 0);
-        } 
-        else 
-        {
-            send(client->getFd(), CYAN "~> Nickname not found\n" RESET, 34, 0);
+        // Vérification de l'existence du destinataire (RFC 2812 section 4.4.1)
+        if (!recipient) {
+            std::string response = ":" + _serverHost + " 401 " + client->getNickname() + " " + target + " :No such nick/channel\r\n";
+            send(client->getFd(), response.c_str(), response.size(), 0);
+            return;
         }
+
+        // Envoi du message privé
+        std::string fullMsg = prefix + " PRIVMSG " + target + " :" + message + "\r\n";
+        send(recipient->getFd(), fullMsg.c_str(), fullMsg.size(), 0);
     }
 }
 
@@ -469,9 +596,21 @@ void Server::createChannel(std::istringstream& iss, Client* client) {
     std::string channelName, password;
     iss >> channelName >> password;
 
+    if (!isRegistered(client)) {
+        std::string response = ":" + _serverHost + " 451 JOIN :You have not registered\r\n";
+        send(client->getFd(), response.c_str(), response.size(), 0);
+        return;
+    }
+
+    channelName.erase(std::remove(channelName.begin(), channelName.end(), '\r'), channelName.end());
+    channelName.erase(std::remove(channelName.begin(), channelName.end(), '\n'), channelName.end());
+    password.erase(std::remove(password.begin(), password.end(), '\r'), password.end());
+    password.erase(std::remove(password.begin(), password.end(), '\n'), password.end());
+
     // Validation basique
-    if (channelName.empty() || channelName[0] != '#') {
-        send(client->getFd(), ":SERVER 461 JOIN :Invalid channel name\r\n", 40, 0);
+    if (channelName.empty() || (channelName[0] != '#' && channelName[0] != '&') || channelName.size() > 50) {
+        std::string msg = ":" + _serverHost + " 403 " + client->getNickname() + " "+ channelName +  " :Invalid channel name\r\n";
+        send(client->getFd(), msg.c_str(), msg.size(), 0);
         return;
     }
 
@@ -483,59 +622,113 @@ void Server::createChannel(std::istringstream& iss, Client* client) {
         _channels.insert(std::make_pair(channelName, newChannel));
         it = _channels.find(channelName);
     }
-
     // Tentative de rejoindre
     it->second.addClient(client, password);
 }
 
-void Server::handlePart(Client* client, std::istringstream& iss) 
-{
+void Server::handlePart(Client* client, std::istringstream& iss) {
     std::string channelName;
     iss >> channelName;
 
-    if (channelName.empty()) 
-	{
-        send(client->getFd(), CYAN "~> Usage: PART <channel>\n" RESET, 36, 0);
+    if (!isRegistered(client)) {
+        std::string response = ":" + _serverHost + " 451 PART :You have not registered\r\n";
+        send(client->getFd(), response.c_str(), response.size(), 0);
         return;
     }
 
-    // Vérifier si le canal existe
+    // Nettoyage du nom de channel
+    channelName.erase(std::remove(channelName.begin(), channelName.end(), '\r'), channelName.end());
+    channelName.erase(std::remove(channelName.begin(), channelName.end(), '\n'), channelName.end());
+
+    // Validation (RFC 2812 section 3.2.2)
+    if (channelName.empty()) {
+        std::string reply = ":" + _serverHost + " 461 " + client->getNickname() + " PART :Not enough parameters\r\n";
+        send(client->getFd(), reply.c_str(), reply.size(), 0);
+        return;
+    }
+
+    // Vérification de l'existence du channel
     std::map<std::string, Channel>::iterator it = _channels.find(channelName);
-    if (it == _channels.end()) 
-	{
-        send(client->getFd(), CYAN "~> Channel does not exist\n" RESET, 37, 0);
+    if (it == _channels.end()) {
+        std::string reply = ":" + _serverHost + " 403 " + client->getNickname() + " " + channelName + " :No such channel\r\n";
+        send(client->getFd(), reply.c_str(), reply.size(), 0);
         return;
     }
 
-    // Retirer le client du canal
+    // Vérification de la présence dans le channel
+    if (!it->second.isMember(client)) {
+        std::string reply = ":" + _serverHost + " 442 " + client->getNickname() + " " + channelName + " :You're not on that channel\r\n";
+        send(client->getFd(), reply.c_str(), reply.size(), 0);
+        return;
+    }
+
+    // Notification PART (RFC 2812 section 3.2.2)
+    std::string partMsg = ":" + getClientHostmask(client) + " PART " + channelName + " :Leaving\r\n";
+    
+    // Envoyer à tous les membres du channel
+    it->second.broadcast(partMsg);
+    
+    // Retirer le client du channel
     it->second.removeClient(client);
 
-    // Envoyer un message de confirmation
-	std::string msg = MAGENTA "~> You left the channel: " + channelName + "\n"  RESET;
-    send(client->getFd(), msg.c_str(), 40 + channelName.size(), 0);
-
-    // Supprimer le canal s'il est vide
-    if (it->second.getClients().empty()) 
-	{
+    // Supprimer le channel si vide
+    if (it->second.getClients().empty()) {
         _channels.erase(it);
-        std::cout << RED << "Channel deleted: " << channelName << RESET << std::endl;
+        std::cout << "Channel " << channelName << " deleted (no more members)\n";
     }
 }
 
-void Server::handleQuit(Client* client) 
-{
-    std::map<std::string, Channel>::iterator it = _channels.begin();
-    while (it != _channels.end()) 
-	{
-        it->second.removeClient(client);
-        if (it->second.getClients().empty()) 
-		{
-            std::cout << RED << "Channel deleted: " << it->first << RESET << std::endl;
-            _channels.erase(it++);
-        } 
-		else 
-            ++it;
+std::string Server::getClientHostmask(Client* client) const {
+    std::string hostmask;
+    
+    // Nickname (ou * si non défini)
+    hostmask += client->getNickname().empty() ? "*" : client->getNickname();
+    hostmask += "!";
+    
+    // Username (ou * si non défini)
+    hostmask += client->getUsername().empty() ? "*" : client->getUsername();
+    hostmask += "@";
+    
+    // Hostname/IP
+    if (!client->getHostname().empty()) {
+        hostmask += client->getHostname();
+    } else {
+        // Fallback sur l'IP si hostname non défini
+        hostmask += client->getIpClient();
     }
+    
+    return hostmask;
+}
+
+void Server::handleQuit(Client* client) {
+    // Construire le message QUIT conforme RFC 2812
+    std::string quitMsg = ":" + getClientHostmask(client) + " QUIT";
+    quitMsg += "\r\n";
+
+    // Notifier tous les channels où le client est présent
+    std::map<std::string, Channel>::iterator it = _channels.begin();
+    while (it != _channels.end()) {
+        Channel& channel = it->second;
+        
+        if (channel.isMember(client)) {
+            // 1. Notifier les membres du channel
+            channel.broadcast(quitMsg);
+            
+            // 2. Retirer le client du channel
+            channel.removeClient(client);
+            
+            // 3. Supprimer les channels vides
+            if (channel.getClients().empty()) {
+                std::cout << "Channel " << it->first 
+                          << " deleted (last member quit)\n";
+                _channels.erase(it++);
+                continue;
+            }
+        }
+        ++it;
+    }
+
+    // Fermer la connexion
     removeClient(client->getFd());
 }
 
@@ -543,73 +736,77 @@ void Server::handleKick(Client* client, std::istringstream& iss)
 {
     std::string channelName, targetNick, reason;
     iss >> channelName >> targetNick;
-    std::getline(iss, reason); // Capture ":Raison"
+    std::getline(iss, reason);
 
-    // Nettoyer la raison
-    if (!reason.empty() && reason[0] == ' ')
-        reason = reason.substr(1);
-    if (!reason.empty() && reason[0] == ':')
-        reason = reason.substr(1);
-
-    // Vérifier que le channel existe
-    if (_channels.find(channelName) == _channels.end()) 
-    {
-        std::string msg = std::string(CYAN) + channelName + " :No such channel\n" + RESET;
-        send(client->getFd(), msg.c_str(), msg.size(), 0);
+    if (!isRegistered(client)) {
+        std::string response = ":" + _serverHost + " 451 KICK :You have not registered\r\n";
+        send(client->getFd(), response.c_str(), response.size(), 0);
         return;
     }
 
-    Channel& channel = _channels[channelName];
-
-    // Vérifier que le demandeur est opérateur
-    bool isOp = false;
-    const std::vector<Client*>& operators = channel.getOperators();
-    for (std::vector<Client*>::const_iterator it = operators.begin(); it != operators.end(); ++it)
-    {
-        if ((*it)->getFd() == client->getFd()) 
-        {
-            isOp = true;
-            break;
-        }
-    }
-
-    if (!isOp) 
-    {
-        std::string msg = std::string(CYAN) + channelName + " :You're not channel operator\n" + RESET;
-        send(client->getFd(), msg.c_str(), msg.size(), 0);
-        return;
-    }
-
-    // Trouver la cible
-    Client* target = NULL;
-    const std::vector<Client*>& clients = channel.getClients();
-    for (std::vector<Client*>::const_iterator it = clients.begin(); it != clients.end(); ++it)
-    {
-        if ((*it)->getNickname() == targetNick) 
-        {
-            target = *it;
-            break;
-        }
-    }
-
-    if (!target) 
-    {
-        std::string msg = std::string(CYAN) + targetNick + " :No such nickname\n" + RESET;
-        send(client->getFd(), msg.c_str(), msg.size(), 0);
-        return;
-    }
-
-    // Exécuter le kick
-    std::string kickMsg = ":" + client->getNickname() + " KICK " + channelName + " " + targetNick + " :" + (reason.empty() ? "No reason" : reason) + "\r\n";
+    // Nettoyage des paramètres (C++98 compatible)
+    channelName.erase(std::remove(channelName.begin(), channelName.end(), '\r'), channelName.end());
+    channelName.erase(std::remove(channelName.begin(), channelName.end(), '\n'), channelName.end());
+    targetNick.erase(std::remove(targetNick.begin(), targetNick.end(), '\r'), targetNick.end());
+    targetNick.erase(std::remove(targetNick.begin(), targetNick.end(), '\n'), targetNick.end());
     
-    // Envoyer à tous les membres du channel
-    for (std::vector<Client*>::const_iterator it = clients.begin(); it != clients.end(); ++it)
-    {
-        send((*it)->getFd(), kickMsg.c_str(), kickMsg.size(), 0);
+    // Nettoyage de la raison
+    size_t start = reason.find_first_not_of(" \t");
+    if (start != std::string::npos) {
+        reason = reason.substr(start);
+    }
+    if (!reason.empty() && reason[0] == ':') {
+        reason = reason.substr(1);
     }
 
-    // Retirer la cible du channel
+    // Vérification des paramètres (RFC 2812 section 4.2.8)
+    if (channelName.empty() || targetNick.empty()) {
+        std::string msg = ":" + _serverHost + " 461 " + client->getNickname() + " KICK :Not enough parameters\r\n";
+        send(client->getFd(), msg.c_str(), msg.size(), 0);
+        return;
+    }
+
+    // Vérification de l'existence du channel
+    std::map<std::string, Channel>::iterator chanIt = _channels.find(channelName);
+    if (chanIt == _channels.end()) {
+        std::string msg = ":" + _serverHost + " 403 " + channelName + " :No such channel\r\n";
+        send(client->getFd(), msg.c_str(), msg.size(), 0);
+        return;
+    }
+    Channel& channel = chanIt->second;
+
+    // Vérification des privilèges (RFC 2812 section 4.2.8)
+    if (!channel.isOperator(client)) {
+        std::string msg = ":" + _serverHost + " 482 " + channelName + " :You're not channel operator\r\n";
+        send(client->getFd(), msg.c_str(), msg.size(), 0);
+        return;
+    }
+
+    // Recherche du client cible
+    Client* target = channel.getClient(targetNick);
+    if (!target) {
+        std::string msg = ":" + _serverHost + " 441 " + targetNick + " " + channelName + " :They aren't on that channel\r\n";
+        send(client->getFd(), msg.c_str(), msg.size(), 0);
+        return;
+    }
+
+    // Construction du message KICK (RFC 2812 section 4.2.8)
+    std::string kickMsg = ":" + getClientHostmask(client) + " KICK " + channelName + " " + targetNick;
+    if (!reason.empty()) {
+        kickMsg += " :" + reason;
+    }
+    kickMsg += "\r\n";
+
+    // Broadcast du message KICK à tout le channel
+    channel.broadcast(kickMsg);
+
+    // Retrait du channel
     channel.removeClient(target);
+
+    // Journalisation
+    std::cout << "KICK: " << client->getNickname() 
+              << " kicked " << targetNick << " from " << channelName 
+              << " (" << (reason.empty() ? "no reason" : reason) << ")" << std::endl;
 }
 
 // Gestion de la commande INVITE
@@ -617,21 +814,30 @@ void Server::handleInvite(Client* client, std::istringstream& iss) {
     std::string targetNick, channelName;
     iss >> targetNick >> channelName;
 
+    if (!isRegistered(client)) {
+        std::string response = ":" + _serverHost + " 451 KICK :You have not registered\r\n";
+        send(client->getFd(), response.c_str(), response.size(), 0);
+        return;
+    }
+
     if (targetNick.empty() || channelName.empty()) {
-        send(client->getFd(), CYAN "~> Usage: INVITE <nickname> <channel>\n" RESET, 45, 0);
+        std::string msg = ":" + _serverHost + " 461 " + client->getNickname() + " INVITE :Not enough parameters\r\n";
+        send(client->getFd(), msg.c_str(), msg.size(), 0);
         return;
     }
 
     // Vérifier que le channel existe
     std::map<std::string, Channel>::iterator it = _channels.find(channelName);
     if (it == _channels.end()) {
-        send(client->getFd(), CYAN "~> Channel does not exist\n" RESET, 37, 0);
+        std::string msg = ":" + _serverHost + " 403 " + channelName + " :No such channel\r\n";
+        send(client->getFd(), msg.c_str(), msg.size(), 0);
         return;
     }
 
     // Vérifier que l'expéditeur est opérateur
-    if (!it->second.isOperator(client)) {
-        send(client->getFd(), CYAN "~> You're not channel operator\n" RESET, 42, 0);
+    if (!it->second.isOperator(client) && _inviteOnly) {
+        std::string msg = ":" + _serverHost + " 482 " + channelName + " :You're not channel operator\r\n";
+        send(client->getFd(), msg.c_str(), msg.size(), 0);
         return;
     }
 
@@ -645,7 +851,8 @@ void Server::handleInvite(Client* client, std::istringstream& iss) {
     }
 
     if (!target) {
-        send(client->getFd(), CYAN "~> Nickname not found\n" RESET, 34, 0);
+        std::string msg = ":" + _serverHost + " 401 " + targetNick + " :No such nick\r\n";
+        send(client->getFd(), msg.c_str(), msg.size(), 0);
         return;
     }
 
@@ -653,11 +860,12 @@ void Server::handleInvite(Client* client, std::istringstream& iss) {
     it->second.addInvited(targetNick);
 
     // Envoyer les notifications
-    std::string msgToInviter = MAGENTA "~> " + targetNick + " invited to " + channelName + "\n" RESET;
-    send(client->getFd(), msgToInviter.c_str(), msgToInviter.size(), 0);
+    std::string msg = ":" + _serverHost + " 341 " + targetNick + " " + channelName + " :Inviting you to " + channelName + "\r\n";
+    send(target->getFd(), msg.c_str(), msg.size(), 0);
 
-    std::string msgToTarget = ":" + client->getNickname() + " INVITE " + targetNick + " " + channelName + "\r\n";
-    send(target->getFd(), msgToTarget.c_str(), msgToTarget.size(), 0);
+    // Notification à la cible (RFC 2812 section 3.2.7)
+    std::string inviteMsg = ":" + getClientHostmask(client) + " INVITE " + targetNick + " " + channelName + "\r\n";
+    send(target->getFd(), inviteMsg.c_str(), inviteMsg.size(), 0);
 }
 
 // Gestion de la commande TOPIC
@@ -666,34 +874,55 @@ void Server::handleTopic(Client* client, std::istringstream& iss) {
     iss >> channelName;
     std::getline(iss, newTopic);
 
-    // Nettoyer le topic
-    if (!newTopic.empty() && newTopic[0] == ' ')
-        newTopic = newTopic.substr(1);
-    if (!newTopic.empty() && newTopic[0] == ':')
-        newTopic = newTopic.substr(1);
-
-    // Vérifier que le channel existe
-    std::map<std::string, Channel>::iterator it = _channels.find(channelName);
-    if (it == _channels.end()) {
-        send(client->getFd(), CYAN "~> Channel does not exist\n" RESET, 37, 0);
+    if (!isRegistered(client)) {
+        std::string response = ":" + _serverHost + " 451 TOPIC :You have not registered\r\n";
+        send(client->getFd(), response.c_str(), response.size(), 0);
         return;
     }
 
+    channelName.erase(std::remove(channelName.begin(), channelName.end(), '\r'), channelName.end());
+    channelName.erase(std::remove(channelName.begin(), channelName.end(), '\n'), channelName.end());
+    
+
+    // Nettoyer le topic
+    size_t start = newTopic.find_first_not_of(" \t");
+    if (start != std::string::npos) {
+        newTopic = newTopic.substr(start);
+    }
+    if (!newTopic.empty() && newTopic[0] == ':') {
+        newTopic = newTopic.substr(1);
+    }
+
+    if (channelName.empty()) {
+        std::string msg = ":" + _serverHost + " 461 " + client->getNickname() + " TOPIC :Not enough parameters\r\n";
+        send(client->getFd(), msg.c_str(), msg.size(), 0);
+        return;
+    }
+    // Vérifier que le channel existe
+    std::map<std::string, Channel>::iterator it = _channels.find(channelName);
+    if (it == _channels.end()) {
+        std::string msg = ":" + _serverHost + " 403 " + channelName + " :No such channel\r\n";
+        send(client->getFd(), msg.c_str(), msg.size(), 0);
+        return;
+    }
+    Channel& channel = it->second;
     // Si pas de nouveau topic, afficher le topic actuel
     if (newTopic.empty()) {
         std::string currentTopic = it->second.getTopic();
         if (currentTopic.empty()) {
-            send(client->getFd(), CYAN "~> No topic is set\n" RESET, 30, 0);
-        } else {
-            std::string msg = MAGENTA "~> Topic for " + channelName + ": " + currentTopic + "\n" RESET;
+            std::string msg = ":" + _serverHost + " 331 " + channelName + " :No topic is set\r\n";
             send(client->getFd(), msg.c_str(), msg.size(), 0);
-        }
+            } else {
+                std::string msg = ":" + _serverHost + " 332 " + channelName + " :" + currentTopic + "\r\n";
+                send(client->getFd(), msg.c_str(), msg.size(), 0);
+            }
         return;
     }
 
     // Vérifier les permissions pour changer le topic
     if (it->second.getTopicRestricted() && !it->second.isOperator(client)) {
-        send(client->getFd(), CYAN "~> You're not channel operator\n" RESET, 42, 0);
+        std::string msg = ":" + _serverHost + " 482 " + channelName + " :You're not channel operator\r\n";
+        send(client->getFd(), msg.c_str(), msg.size(), 0);
         return;
     }
 
@@ -701,11 +930,8 @@ void Server::handleTopic(Client* client, std::istringstream& iss) {
     it->second.setTopic(newTopic);
 
     // Notifier tous les membres du channel
-    std::string msg = ":" + client->getNickname() + " TOPIC " + channelName + " :" + newTopic + "\r\n";
-    const std::vector<Client*>& members = it->second.getClients();
-    for (size_t i = 0; i < members.size(); ++i) {
-        send(members[i]->getFd(), msg.c_str(), msg.size(), 0);
-    }
+    std::string topicMsg = ":" + getClientHostmask(client) + " TOPIC " + channelName + " :" + newTopic + "\r\n";
+    channel.broadcast(topicMsg);
 }
 
 // Gestion de la commande MODE
@@ -713,22 +939,31 @@ void Server::handleMode(Client* client, std::istringstream& iss) {
     std::string target, mode, arg;
     iss >> target >> mode;
 
+    if (!isRegistered(client)) {
+        std::string response = ":" + _serverHost + " 451 MODE :You have not registered\r\n";
+        send(client->getFd(), response.c_str(), response.size(), 0);
+        return;
+    }
+
     // Vérifier que la cible est un channel
-    if (target.empty() || target[0] != '#') {
-        send(client->getFd(), CYAN "~> MODE is only supported for channels\n" RESET, 49, 0);
+    if (target.empty() || (target[0] != '#' && target[0] != '&')) {
+        std::string reply = ":" + _serverHost + " 472 " + client->getNickname() + " :Cannot change mode for non-channels\r\n";
+        send(client->getFd(), reply.c_str(), reply.size(), 0);
         return;
     }
 
     // Vérifier que le channel existe
     std::map<std::string, Channel>::iterator it = _channels.find(target);
     if (it == _channels.end()) {
-        send(client->getFd(), CYAN "~> Channel does not exist\n" RESET, 37, 0);
+        std::string reply = ":" + _serverHost + " 403 " + client->getNickname() + " " + target + " :No such channel\r\n";
+        send(client->getFd(), reply.c_str(), reply.size(), 0);
         return;
     }
 
     // Vérifier que l'expéditeur est opérateur
     if (!it->second.isOperator(client)) {
-        send(client->getFd(), CYAN "~> You're not channel operator\n" RESET, 42, 0);
+        std::string reply = ":" + _serverHost + " 482 " + client->getNickname() + " " + target + " :You're not channel operator\r\n";
+        send(client->getFd(), reply.c_str(), reply.size(), 0);
         return;
     }
 
@@ -740,10 +975,19 @@ void Server::handleMode(Client* client, std::istringstream& iss) {
         if (!it->second.getPassword().empty()) modes += "k";
         if (it->second.getMaxClients() > 0) modes += "l";
         
-        std::string msg = MAGENTA "~> Current modes for " + target + ": " + modes + "\n" RESET;
-        send(client->getFd(), msg.c_str(), msg.size(), 0);
+        std::string reply = ":" + _serverHost + " 324 " + client->getNickname() + " " + target + " " + modes + "\r\n";
+        reply += ":" + _serverHost + " 329 " + client->getNickname() + " " + target + "\r\n";
+        send(client->getFd(), reply.c_str(), reply.size(), 0);
         return;
     }
+
+    // Validation du format du mode
+    if (mode.size() != 2 || (mode[0] != '+' && mode[0] != '-')) {
+        std::string reply = ":" + _serverHost + " 501 " + client->getNickname() + " :Unknown MODE flag\r\n";
+        send(client->getFd(), reply.c_str(), reply.size(), 0);
+        return;
+    }
+
 
     // Traiter les modes
     bool addMode = (mode[0] == '+');
@@ -760,8 +1004,9 @@ void Server::handleMode(Client* client, std::istringstream& iss) {
         case 'k': // Mot de passe du channel
     if (addMode) {
         if (arg.empty()) {
-            send(client->getFd(), CYAN "~> Missing password argument\n" RESET, 38, 0);
-            return;
+                    std::string reply = ":" + _serverHost + " 461 " + client->getNickname() + " MODE :Not enough parameters\r\n";
+                    send(client->getFd(), reply.c_str(), reply.size(), 0);
+                    return;
         }
         it->second.setPassword(arg);
     } else {
@@ -774,7 +1019,8 @@ void Server::handleMode(Client* client, std::istringstream& iss) {
         case 'o': // Donner/retirer le statut opérateur
             {
                 if (arg.empty()) {
-                    send(client->getFd(), CYAN "~> Missing nickname argument\n" RESET, 39, 0);
+                    std::string reply = ":" + _serverHost + " 461 " + client->getNickname() + " MODE :Not enough parameters\r\n";
+                    send(client->getFd(), reply.c_str(), reply.size(), 0);
                     return;
                 }
                 Client* targetClient = NULL;
@@ -786,7 +1032,8 @@ void Server::handleMode(Client* client, std::istringstream& iss) {
                     }
                 }
                 if (!targetClient) {
-                    send(client->getFd(), CYAN "~> Nickname not in channel\n" RESET, 37, 0);
+                    std::string reply = ":" + _serverHost + " 441 " + client->getNickname() + " " + arg + " " + target + " :They aren't on that channel\r\n";
+                    send(client->getFd(), reply.c_str(), reply.size(), 0);
                     return;
                 }
                 if (addMode) {
@@ -799,12 +1046,14 @@ void Server::handleMode(Client* client, std::istringstream& iss) {
         case 'l': // Limite d'utilisateurs
             if (addMode) {
                 if (arg.empty()) {
-                    send(client->getFd(), CYAN "~> Missing limit argument\n" RESET, 37, 0);
+                    std::string reply = ":" + _serverHost + " 461 " + client->getNickname() + " MODE :Not enough parameters\r\n";
+                    send(client->getFd(), reply.c_str(), reply.size(), 0);
                     return;
                 }
                 int limit = atoi(arg.c_str());
                 if (limit <= 0) {
-                    send(client->getFd(), CYAN "~> Invalid limit value\n" RESET, 35, 0);
+                    std::string reply = ":" + _serverHost + " 696 " + client->getNickname() + " " + target + " " + mode + " :Invalid limit value\r\n";
+                    send(client->getFd(), reply.c_str(), reply.size(), 0);
                     return;
                 }
                 it->second.setMaxClients(limit);
@@ -813,17 +1062,29 @@ void Server::handleMode(Client* client, std::istringstream& iss) {
             }
             break;
         default:
-            send(client->getFd(), CYAN "~> Unknown mode\n" RESET, 29, 0);
+            std::string reply = ":" + _serverHost + " 472 " + client->getNickname() + " " + std::string(1, modeChar) + " :Unknown MODE flag\r\n";
+            send(client->getFd(), reply.c_str(), reply.size(), 0);
             return;
     }
 
     // Notifier le changement de mode
-    std::string modeMsg = ":" + client->getNickname() + " MODE " + target + " " + mode;
+    std::string modeMsg = ":" + client->getNickname() + "!" + client->getUsername() + "@" + client->getHostname() + " MODE " + target + " " + mode;
     if (!arg.empty()) modeMsg += " " + arg;
     modeMsg += "\r\n";
-
+    
     const std::vector<Client*>& members = it->second.getClients();
     for (size_t i = 0; i < members.size(); ++i) {
         send(members[i]->getFd(), modeMsg.c_str(), modeMsg.size(), 0);
     }
+}
+
+void Server::sendWelcomeMessage(Client* client) 
+{
+    std::string welcomeMsg = ":" + _serverHost + " 001 " + client->getNickname() + 
+                           " :Welcome to the Internet Relay Network " + 
+                           client->getNickname() + "!" + client->getUsername() + 
+                           "@" + client->getHostname() + "\r\n";
+    
+    send(client->getFd(), welcomeMsg.c_str(), welcomeMsg.size(), 0);
+    
 }

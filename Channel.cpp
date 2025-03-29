@@ -78,24 +78,40 @@ void Channel::broadcast(const std::string& message) {
     }
 }
 
+void Channel::broadcast2(const std::string& message, Client* exclude) 
+{
+   for (size_t i = 0; i < _clients.size(); ++i) {
+        if (_clients[i] != exclude) {  // Ne pas envoyer à 'exclude'
+            send(_clients[i]->getFd(), message.c_str(), message.size(), 0);
+        }
+    }
+}
+
 //                     Gestion des clients
 
 void Channel::addClient(Client* client, const std::string& password) {
+    std::string nick = client->getNickname();
+    std::string user = client->getUsername();
+    std::string host = client->getHostname();
+
     // 1. Vérifier la limite d'utilisateurs (+l)
     if (_maxClients > 0 && _clients.size() >= static_cast<size_t>(_maxClients)) {
-        send(client->getFd(), ":SERVER 471 #general :Cannot join channel (+l)\r\n", 46, 0);
+        std::string msg = ":localhost 471 " + nick + " " + _name + " :Cannot join channel (+l)\r\n";
+        send(client->getFd(), msg.c_str(), msg.size(), 0);
         return;
     }
 
-    // 2. Vérifier le mot de passe (+k) si fourni
+    // 2. Vérifier le mot de passe (+k)
     if (!_password.empty() && _password != password) {
-        send(client->getFd(), ":SERVER 475 #general :Bad channel key\r\n", 40, 0);
+        std::string msg = ":localhost 475 " + nick + " " + _name + " :Cannot join channel (+k)\r\n";
+        send(client->getFd(), msg.c_str(), msg.size(), 0);
         return;
     }
 
     // 3. Vérifier le mode invitation (+i)
-    if (_inviteOnly && !isInvited(client->getNickname())) {
-        send(client->getFd(), ":SERVER 473 #general :Invite-only channel\r\n", 43, 0);
+    if (_inviteOnly && !isInvited(nick)) {
+        std::string msg = ":localhost 473 " + nick + " " + _name + " :Cannot join channel (+i)\r\n";
+        send(client->getFd(), msg.c_str(), msg.size(), 0);
         return;
     }
 
@@ -105,9 +121,17 @@ void Channel::addClient(Client* client, const std::string& password) {
         _operators.push_back(client);
     }
 
-    // Notification IRC standard
-    std::string msg = ":" + client->getNickname() + "!" + client->getUsername() + "@localhost JOIN :" + _name + "\r\n";
-    broadcast(msg);
+    // 5. Envoyer les notifications
+    std::string joinMsg = ":" + nick + "!" + user + "@" + host + " JOIN " + _name + "\r\n";
+    
+    // Broadcast à tous les membres du channel
+    broadcast(joinMsg);
+    
+    // Envoyer le topic si existant (332)
+    if (!_topic.empty()) {
+        std::string topicMsg = ":localhost 332 " + nick + " " + _name + " :" + _topic + "\r\n";
+        send(client->getFd(), topicMsg.c_str(), topicMsg.size(), 0);
+    }
 }
 
 void Channel::alertAll(const std::string& nickname, const std::string& msg) {
@@ -124,8 +148,12 @@ void Channel::removeClient(Client* client)
     std::vector<Client*>::iterator it = std::find(_clients.begin(), _clients.end(), client);
     if (it != _clients.end()) 
 	{
+		std::string nick = client->getNickname();
+        std::string user = client->getUsername();
+        std::string host = client->getHostname();
         _clients.erase(it);
-        alertAll(client->getNickname(), "left the channel");
+        std::string partMsg = ":" + nick + "!" + user + "@" + host + " PART " + _name + "\r\n";
+        broadcast(partMsg);
 		_operators.erase(std::remove(_operators.begin(), _operators.end(), client), _operators.end());
     }
 }
@@ -177,9 +205,9 @@ void Channel::kickClient(Client* kicker, Client* target, const std::string& reas
 {
     if (!isOperator(kicker)) 
 	{
-		std::string msg = CYAN + _name + " :You're not a channel operator\n" RESET;
-        send(kicker->getFd(), msg.c_str(), msg.size(), 0);
-        return;
+        std::string msg = ":localhost 482 " + kicker->getNickname() + " " + _name + 
+                         " :You're not channel operator\r\n";
+        send(kicker->getFd(), msg.c_str(), msg.size(), 0);        return;
     }
 
     std::vector<Client*>::iterator it = std::find(_clients.begin(), _clients.end(), target);
@@ -188,4 +216,18 @@ void Channel::kickClient(Client* kicker, Client* target, const std::string& reas
         _clients.erase(it);
         std::string msg = ":" + kicker->getNickname() + " KICK " + _name + " " + target->getNickname() + " :" + reason + "\r\n";
     	alertAll(kicker->getNickname(), "kicked " + target->getNickname() + " from channel");    }
+}
+
+bool Channel::isMember(Client* client) const 
+{
+	return std::find(_clients.begin(), _clients.end(), client) != _clients.end();
+}
+
+Client* Channel::getClient(const std::string& nickname) const {
+    for (std::vector<Client*>::const_iterator it = _clients.begin(); it != _clients.end(); ++it) {
+        if ((*it)->getNickname() == nickname) {
+            return *it;
+        }
+    }
+    return NULL;
 }

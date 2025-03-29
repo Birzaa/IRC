@@ -28,25 +28,28 @@ class Channel
 		std::string _topic;
 		std::vector<Client*> _clients;
 		std::vector<Client*> _operators;
-		bool _inviteOnly;
 		std::string _password;
 		int _maxClients;
         std::vector<std::string> _invited; // Liste des clients invités
         bool _topicRestricted; // Mode +t
         
-
-		void alertAll(const std::string& nickname, const std::string& msg);
+	protected:
+		bool _inviteOnly;
 
 	public:
 		Channel();
 		Channel(const std::string& name);
 		~Channel();
 
+		void alertAll(const std::string& nickname, const std::string& msg);
 		// Gestion des clients
 		void broadcast(const std::string& message);
+		void broadcast2(const std::string& message, Client* exclude = NULL);
         void addClient(Client* client, const std::string& password);
 		void removeClient(Client* client);
 		const std::vector<Client*>& getClients() const;
+		bool isMember(Client* client) const;
+		Client* getClient(const std::string& nickname) const;
 
 		// Gestion des messages
 		void broadcastMessage(const std::string& sender, const std::string& message);

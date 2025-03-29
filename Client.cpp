@@ -131,3 +131,4 @@ void Client::setRealname(const std::string& realname)
 {
 	this->_realname = realname;
 }
+
