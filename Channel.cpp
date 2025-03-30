@@ -6,6 +6,7 @@ Channel::Channel() : _name("default"), _topicRestricted(false)
     _inviteOnly = false;
     _password = "";
     _maxClients = -1;
+    _creationTime = time(NULL);
 }
 
 Channel::Channel(const std::string& name) : _topicRestricted(false)
@@ -15,6 +16,8 @@ Channel::Channel(const std::string& name) : _topicRestricted(false)
     this->_inviteOnly = false;
     this->_password = "";
     this->_maxClients = -1;
+    _creationTime = time(NULL);
+
 }
 
 Channel::~Channel()
@@ -121,17 +124,8 @@ void Channel::addClient(Client* client, const std::string& password) {
         _operators.push_back(client);
     }
 
-    // 5. Envoyer les notifications
-    std::string joinMsg = ":" + nick + "!" + user + "@" + host + " JOIN " + _name + "\r\n";
-    
-    // Broadcast à tous les membres du channel
-    broadcast(joinMsg);
-    
-    // Envoyer le topic si existant (332)
-    if (!_topic.empty()) {
-        std::string topicMsg = ":localhost 332 " + nick + " " + _name + " :" + _topic + "\r\n";
-        send(client->getFd(), topicMsg.c_str(), topicMsg.size(), 0);
-    }
+    // 5. Envoyer le message JOIN
+    sendJoinReply(client);
 }
 
 void Channel::alertAll(const std::string& nickname, const std::string& msg) {
@@ -230,4 +224,53 @@ Client* Channel::getClient(const std::string& nickname) const {
         }
     }
     return NULL;
+}
+
+#include <sstream> // Ajoutez cette ligne en haut du fichier
+
+void Channel::sendIrcReply(int code, Client* client, const std::string& arg1, const std::string& arg2) 
+{
+    std::ostringstream oss;
+    oss << ":localhost " << code << " " << client->getNickname();
+    
+    if (!arg1.empty())
+        oss << " " << arg1;
+    if (!arg2.empty())
+        oss << " :" << arg2;
+    
+    oss << "\r\n";
+    std::string msg = oss.str();
+    send(client->getFd(), msg.c_str(), msg.size(), 0);
+}
+
+
+void Channel::sendJoinReply(Client* client) {
+    // 1. Envoie le message JOIN à tous les membres du canal
+    std::string joinMsg = ":" + client->getNickname() + "!" + client->getUsername() + "@" + client->getHostname() 
+                        + " JOIN " + _name + "\r\n";
+    broadcast(joinMsg);
+
+    // 2. Construit la liste des nicks avec préfixes opérateurs
+    std::string namesList;
+    for (size_t i = 0; i < _clients.size(); ++i) {
+        if (isOperator(_clients[i])) {
+            namesList += "@"; // Préfixe opérateur
+        }
+        namesList += _clients[i]->getNickname() + " ";
+    }
+
+    // 3. Envoie les réponses IRC via la fonction utilitaire
+    sendIrcReply(353, client, "= " + _name, namesList);  // RPL_NAMREPLY (liste des nicks)
+    sendIrcReply(366, client, _name, "End of /NAMES list"); // RPL_ENDOFNAMES
+
+
+    // 4. Envoie le topic si existant
+    if (!_topic.empty()) {
+        sendIrcReply(332, client, _name, _topic);  // RPL_TOPIC
+    }
+    
+    // // 5. Ajoute date de création du channel
+    // std::ostringstream creationMsg;
+    // creationMsg << _creationTime;  // Timestamp UNIX
+    // sendIrcReply(329, client, _name, creationMsg.str());
 }

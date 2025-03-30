@@ -1,20 +1,23 @@
 #include "Server.hpp"
+#include "Utils.hpp"
 
 // Initialisation des constantes (C++98 compatible)
-const std::string Server::VALID_COMMANDS[11] = {
+const std::string Server::VALID_COMMANDS[12] = {
     "PASS", "NICK", "USER", "JOIN", "PART", "PRIVMSG",
-    "MODE", "TOPIC", "INVITE", "KICK", "QUIT"
+    "MODE", "TOPIC", "INVITE", "KICK", "QUIT", "PING"
 };
 
-Server::Server(const std::string &port, const std::string &password)
+Server::Server(const int &port, const std::string &password) : _password(password)
 {
-	this->_port = atoi(port.c_str());
-	this->_password = password;
+    if (!isValidIRCPort(port))
+        throw std::runtime_error(RED "Invalid port number" RESET);
+    this->_port = port;
     this->_serverHost = "localhost";
 }
 
 Server::~Server()
 {
+    closeFds();
 	for (size_t i = 0; i < _clients.size(); i++) 
     	delete _clients[i]; 
 
@@ -80,7 +83,7 @@ void Server::closeFds()
 {
 	for (size_t i = 0; i < _clients.size(); i++)
 	{
-		std::cout << ORANGE << "Client : " << this->_clients[i]->getFd() << " Disconnected" << RESET << std::endl;
+		std::cout << printTime() << "Client : FD[" << this->_clients[i]->getFd() << "] Disconnected" << std::endl;
 		close(this->_clients[i]->getFd());
 	}
 	if (this->_serverFd >= 0)
@@ -129,9 +132,14 @@ void Server::initSocket()
 void Server::startServer()
 {
 	std::cout << "Waiting for clients..." << std::endl;
+    time_t lastPingCheck = time(NULL);
 
 	while (Server::signal == false) 
 	{
+        if (time(NULL) - lastPingCheck > 10) {
+            checkPingTimeout();
+            lastPingCheck = time(NULL);
+        }
         // poll() surveille tous les FDs (_fds.data() pointe sur le 1er élement du vecteur), (-1) pour attendre indéfiniment
         int ret = poll(_fds.data(), _fds.size(), -1);
         if (ret == -1 && Server::signal == false) 
@@ -180,7 +188,7 @@ void Server::acceptClient()
 	pfd.revents = 0; // on remet à 0 les événements
 	_fds.push_back(pfd); // on ajoute le client à la liste des FDs surveillés
 
-	std::cout << BLUE <<"New client connected : FD " << clientFd << RESET << std::endl;
+	std::cout << printTime() << "New connection FD [" << clientFd << "]" << std::endl;
 }
 
 void Server::handlePass(Client* client, std::istringstream& iss) {
@@ -226,89 +234,119 @@ void Server::handlePass(Client* client, std::istringstream& iss) {
     }
 }
 
+
+
 void Server::handleMessage(int clientFd) {
     char buffer[1024];
-    ssize_t bytes_received = recv(clientFd, buffer, sizeof(buffer) - 1, 0);
+    ssize_t bytes_received;
+    static std::map<int, std::string> client_buffers; // Static pour conserver l'état entre les appels
 
-    // Gestion de la déconnexion
+    // Lecture unique (pas de while pour éviter les boucles infinies sur connexion lente)
+    bytes_received = recv(clientFd, buffer, sizeof(buffer) - 1, 0);
+    
     if (bytes_received <= 0) {
+        if (bytes_received == 0) {
+            std::cout << printTime() << "Client disconnected (FD " << clientFd << ")" << std::endl;
+        } else {
+            std::cerr << printTime() << RED << " [ERROR] recv() failed for FD " << clientFd <<  RESET << std::endl;
+        }
+
         Client* client = getClientByFd(clientFd);
         if (client) {
             handleQuit(client);
         } else {
-            std::cout << ORANGE << "Unknown client disconnected (FD " 
-                     << clientFd << ")" << RESET << std::endl;
             removeClient(clientFd);
         }
+        client_buffers.erase(clientFd); // Nettoyage du buffer
         return;
     }
 
     buffer[bytes_received] = '\0';
-    std::string message(buffer);
+    client_buffers[clientFd] += buffer; // Accumulation des fragments
 
-    // Nettoyage du message 
-    message.erase(std::remove(message.begin(), message.end(), '\r'), message.end());
-    size_t endpos = message.find_last_not_of("\n\t ");
-    if (endpos != std::string::npos) {
-        message.erase(endpos + 1);
-    }
+    // Détection des messages complets (délimités par \n)
+    size_t pos;
+    while ((pos = client_buffers[clientFd].find('\n')) != std::string::npos) {
+        std::string full_message = client_buffers[clientFd].substr(0, pos);
+        client_buffers[clientFd].erase(0, pos + 1); // Retire le message traité
 
-    if (message.empty()) return;
+        // Nettoyage du message
+        full_message.erase(std::remove(full_message.begin(), full_message.end(), '\r'), full_message.end());
+        full_message.erase(0, full_message.find_first_not_of(" \t\n\r"));
+        full_message.erase(full_message.find_last_not_of(" \t\n\r") + 1);
 
-    Client* client = getClientByFd(clientFd);
-    if (!client) {
-        std::cerr << RED << "Client not found for FD " << clientFd << RESET << std::endl;
-        return;
-    }
+        if (full_message.empty()) continue;
 
-    std::istringstream iss(message);
-    std::string command;
-    iss >> command;
-    std::transform(command.begin(), command.end(), command.begin(), ::toupper);
+        std::cout << printTime() << full_message << std::endl;
 
-    // Vérification de la commande 
-    bool isValidCommand = false;
-    for (size_t i = 0; i < sizeof(VALID_COMMANDS)/sizeof(VALID_COMMANDS[0]); ++i) {
-        if (command == VALID_COMMANDS[i]) {
-            isValidCommand = true;
-            break;
+        Client* client = getClientByFd(clientFd);
+        if (!client) {
+            std::cerr << RED << "Client not found for FD " << clientFd << RESET << std::endl;
+            client_buffers.erase(clientFd);
+            return;
+        }
+
+        std::istringstream iss(full_message);
+        std::string command;
+        iss >> command;
+        std::transform(command.begin(), command.end(), command.begin(), ::toupper);
+
+        // Vérification de la commande
+        bool isValidCommand = false;
+        for (size_t i = 0; i < sizeof(VALID_COMMANDS)/sizeof(VALID_COMMANDS[0]); ++i) {
+            if (command == VALID_COMMANDS[i]) {
+                isValidCommand = true;
+                break;
+            }
+        }
+
+        if (command == "CAP") {
+            send(clientFd, "CAP :Not supported\r\n", 19, 0);
+            continue;
+        }
+
+        if (!isValidCommand) {
+            std::string errorMsg = ":" + _serverHost + " 421 " + (client->getNickname().empty() ? "*" : client->getNickname()) 
+                                + " " + command + " :Unknown command\r\n";
+            send(clientFd, errorMsg.c_str(), errorMsg.size(), 0);
+            continue;
+        }
+
+        if (!client->getAuthenticated() && command != "PASS") {
+            std::string errorMsg = ":" + _serverHost + " 451 " + (client->getNickname().empty() ? "*" : client->getNickname()) 
+                                + " :You must authenticate first\r\n";
+            send(clientFd, errorMsg.c_str(), errorMsg.size(), 0);
+            continue;
+        }
+
+        try {
+            // [Votre logique existante de traitement des commandes...]
+            if (command == "PASS") handlePass(client, iss);
+            else if (command == "NICK") handleNick(client, iss);
+            else if (command == "USER") handleUser(client, iss);
+            else if (command == "JOIN") createChannel(iss, client);
+            else if (command == "PART") handlePart(client, iss);
+            else if (command == "PRIVMSG") handlePrivmsg(client, iss);
+            else if (command == "MODE") handleMode(client, iss);
+            else if (command == "TOPIC") handleTopic(client, iss);
+            else if (command == "INVITE") handleInvite(client, iss);
+            else if (command == "KICK") handleKick(client, iss);
+            else if (command == "QUIT") handleQuit(client);
+            else if (command == "PING") handlePing(client, iss);
+        } catch (const std::exception& e) {
+            std::string errorMsg = ":" + _serverHost + " 500 " + (client->getNickname().empty() ? "*" : client->getNickname()) 
+                                + " :Error processing command: " + std::string(e.what()) + "\r\n";
+            send(clientFd, errorMsg.c_str(), errorMsg.size(), 0);
+            std::cerr << RED << "Error processing command from FD " << clientFd 
+                     << ": " << e.what() << RESET << std::endl;
         }
     }
 
-    if (!isValidCommand) {
-        std::string errorMsg = ":" + _serverHost + " 421 " + (client->getNickname().empty() ? "*" : client->getNickname()) 
-                            + " " + command + " :Unknown command\r\n";
-        send(clientFd, errorMsg.c_str(), errorMsg.size(), 0);
-        return;
-    }
-
-    // Gestion de l'authentification 
-    if (!client->getAuthenticated() && command != "PASS") {
-        std::string errorMsg = ":" + _serverHost + " 451 " + (client->getNickname().empty() ? "*" : client->getNickname()) 
-                            + " :You must authenticate first\r\n";
-        send(clientFd, errorMsg.c_str(), errorMsg.size(), 0);
-        return;
-    }
-
-    // Traitement des commandes avec gestion d'erreur
-    try {
-        if (command == "PASS") handlePass(client, iss);
-        else if (command == "NICK") handleNick(client, iss);
-        else if (command == "USER") handleUser(client, iss);
-        else if (command == "JOIN") createChannel(iss, client);
-        else if (command == "PART") handlePart(client, iss);
-        else if (command == "PRIVMSG") handlePrivmsg(client, iss);
-        else if (command == "MODE") handleMode(client, iss);
-        else if (command == "TOPIC") handleTopic(client, iss);
-        else if (command == "INVITE") handleInvite(client, iss);
-        else if (command == "KICK") handleKick(client, iss);
-        else if (command == "QUIT") handleQuit(client);
-    } catch (const std::exception& e) {
-        std::string errorMsg = ":" + _serverHost + " 500 " + (client->getNickname().empty() ? "*" : client->getNickname()) 
-                            + " :Error processing command: " + std::string(e.what()) + "\r\n";
-        send(clientFd, errorMsg.c_str(), errorMsg.size(), 0);
-        std::cerr << RED << "Error processing command from FD " << clientFd 
-                 << ": " << e.what() << RESET << std::endl;
+    // Protection contre les buffers trop gros (attaque par flood)
+    if (client_buffers[clientFd].size() > 512 * 1024) { // 512Ko max
+        std::cerr << printTime() << RED << " Buffer overflow detected on FD " << clientFd << RESET << std::endl;
+        removeClient(clientFd);
+        client_buffers.erase(clientFd);
     }
 }
 
@@ -336,7 +374,7 @@ void Server::removeClient(int clientFd)
         }
     }
 
-    std::cout << RED << "Client FD " << clientFd << " supprimé." << RESET << std::endl;
+    std::cout << printTime() << "Client FD [" << clientFd << "] supprimé." << std::endl;
 }
 
 bool Server::signal = false;
@@ -674,7 +712,7 @@ void Server::handlePart(Client* client, std::istringstream& iss) {
     // Supprimer le channel si vide
     if (it->second.getClients().empty()) {
         _channels.erase(it);
-        std::cout << "Channel " << channelName << " deleted (no more members)\n";
+        std::cout << printTime() << "Channel " << channelName << " deleted (no more members)\n";
     }
 }
 
@@ -719,7 +757,7 @@ void Server::handleQuit(Client* client) {
             
             // 3. Supprimer les channels vides
             if (channel.getClients().empty()) {
-                std::cout << "Channel " << it->first 
+                std::cout << printTime() << "Channel " << it->first 
                           << " deleted (last member quit)\n";
                 _channels.erase(it++);
                 continue;
@@ -939,6 +977,11 @@ void Server::handleMode(Client* client, std::istringstream& iss) {
     std::string target, mode, arg;
     iss >> target >> mode;
 
+    if (target == client->getNickname() && mode == "+i") 
+    {
+        return;
+    }
+
     if (!isRegistered(client)) {
         std::string response = ":" + _serverHost + " 451 MODE :You have not registered\r\n";
         send(client->getFd(), response.c_str(), response.size(), 0);
@@ -1087,4 +1130,48 @@ void Server::sendWelcomeMessage(Client* client)
     
     send(client->getFd(), welcomeMsg.c_str(), welcomeMsg.size(), 0);
     
+}
+
+
+
+void Server::handlePing(Client* client, std::istringstream& iss) {
+    std::string token;
+    std::getline(iss, token);
+    
+    // Nettoyer le token
+    token.erase(std::remove(token.begin(), token.end(), '\r'), token.end());
+    token.erase(std::remove(token.begin(), token.end(), '\n'), token.end());
+    
+    // Supprimer les espaces et le ':' au début si présent
+    size_t start = token.find_first_not_of(" :");
+    if (start != std::string::npos) {
+        token = token.substr(start);
+    }
+
+    // Envoyer la réponse PONG
+    std::string response = ":" + _serverHost + " PONG " + _serverHost + " :" + token + "\r\n";
+    send(client->getFd(), response.c_str(), response.size(), 0);
+    
+    // Mettre à jour le dernier PONG reçu (pour le timeout)
+    client->setLastPong(time(NULL));
+}
+
+void Server::checkPingTimeout() {
+    time_t now = time(NULL);
+    
+    for (size_t i = 0; i < _clients.size(); ++i) {
+        Client* client = _clients[i];
+        time_t lastActive = client->getLastPong();
+        
+        if (now - lastActive > PING_TIMEOUT) {
+            std::cout << "Client " << client->getNickname() << " timed out (no PONG response)" << std::endl;
+            removeClient(client->getFd());
+            --i; // Ajuster l'index après suppression
+        } 
+        else if (now - lastActive > PING_INTERVAL) {
+            // Envoyer un PING si le client n'a pas répondu récemment
+            std::string pingMsg = ":" + _serverHost + " PING " + _serverHost + " :" + _serverHost + "\r\n";
+            send(client->getFd(), pingMsg.c_str(), pingMsg.size(), 0);
+        }
+    }
 }

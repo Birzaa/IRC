@@ -11,6 +11,7 @@ Client::Client()
 	this->_realname = "";
 	this->_servername = "";
 	this->_username = "";
+	this->_lastPong = time(NULL);
 
 }
 Client::~Client()
@@ -132,3 +133,11 @@ void Client::setRealname(const std::string& realname)
 	this->_realname = realname;
 }
 
+
+time_t Client::getLastPong() const {
+    return _lastPong;
+}
+
+void Client::setLastPong(time_t time) {
+    _lastPong = time;
+}

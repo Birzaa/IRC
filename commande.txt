@@ -1,0 +1,26 @@
+irssi : 
+CTRL+N pour changer de fenetre
+
+/connect -nocap 127.0.0.1 6667 123
+
+/join channelTest
+
+ecrire un message => verifier que tout le monde a recu
+
+/msg <cible> <msg>
+
+/topic gros caca
+
+/mode +t => mtn que l'opérateur peut changer le topic
+
+/mode +o <cible> => devient l'opérateur
+
+/kick <cible>
+
+/mode +i => besoin d'être invité
+/mode +k zz => mdp
+/mode +l 1 ==> 1 membres max dans le channel
+
+/invite <cible>
+
+

@@ -28,9 +28,16 @@
 #define RESET   "\033[0m"
 #define BOLD_RED "\033[1;31m"
 
+#define PING_INTERVAL 30
+#define PING_TIMEOUT 60
+
+# define RPL_WHOISUSER(nickname, host_name, username) (":localhost 311 " + nickname + " " + host_name + " ~" + username + " localhost * :" + username + "\r\n")
+
+
 
 #include "Client.hpp"
 #include "Channel.hpp"
+#include "Utils.hpp"
 
 class Server : public Channel
 {
@@ -48,13 +55,13 @@ class Server : public Channel
         void handlePass(Client* client, std::istringstream& iss);
 		void removeClient(int client_fd);
 
-		static const std::string VALID_COMMANDS[11];
+		static const std::string VALID_COMMANDS[12];
 
 		// Channel
 		std::map<std::string, Channel> _channels;
 
 	public:
-		Server(const std::string &port, const std::string &password);
+		Server(const int &port, const std::string &password);
 		~Server();
 		
 		static bool signal;
@@ -85,6 +92,9 @@ class Server : public Channel
         void handleInvite(Client* client, std::istringstream& iss);
         void handleTopic(Client* client, std::istringstream& iss);
         void handleMode(Client* client, std::istringstream& iss);
+
+		void handlePing(Client* client, std::istringstream& iss);
+		void checkPingTimeout();
 
 };
 

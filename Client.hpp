@@ -14,6 +14,7 @@ class Client
 		std::string _hostname;
 		std::string _servername;
 		std::string _realname;
+		time_t _lastPong;
 
 
 	public:
@@ -23,6 +24,9 @@ class Client
 		Client(const Client& other);
 		
 		int authAttempts;
+		
+		time_t getLastPong() const;
+    	void setLastPong(time_t time);
 
 		// Getter
 		int getFd() const;

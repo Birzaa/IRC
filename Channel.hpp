@@ -32,6 +32,7 @@ class Channel
 		int _maxClients;
         std::vector<std::string> _invited; // Liste des clients invités
         bool _topicRestricted; // Mode +t
+		time_t _creationTime;
         
 	protected:
 		bool _inviteOnly;
@@ -50,6 +51,8 @@ class Channel
 		const std::vector<Client*>& getClients() const;
 		bool isMember(Client* client) const;
 		Client* getClient(const std::string& nickname) const;
+		void sendIrcReply(int code, Client* client, const std::string& arg1, const std::string& arg2);
+		void sendJoinReply(Client* client);
 
 		// Gestion des messages
 		void broadcastMessage(const std::string& sender, const std::string& message);

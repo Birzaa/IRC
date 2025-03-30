@@ -28,6 +28,7 @@ HEADERS         = $(addsuffix .hpp, \
 					Server \
 					Client \
 					Channel \
+					Utils \
 					)
 
 SRCS            = $(addsuffix .cpp, \
@@ -35,6 +36,7 @@ SRCS            = $(addsuffix .cpp, \
 					Server \
 					Client \
 					Channel \
+					Utils \
 					)
 
 OBJS            = $(SRCS:%.cpp=$(OBJ_PATH)/%.o)
