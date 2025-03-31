@@ -18,6 +18,7 @@ int main(int ac, char **av) {
         // 3. Configuration des signaux
         signal(SIGINT, Server::signalHandler);  // CTRL+C
         signal(SIGQUIT, Server::signalHandler); // (CTRL+\)
+        signal(SIGPIPE, SIG_IGN); // Ignorer SIGPIPE
         
         // 4. Initialisation et démarrage
         server.initServer();

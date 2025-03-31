@@ -4,7 +4,7 @@
 // Initialisation des constantes (C++98 compatible)
 const std::string Server::VALID_COMMANDS[12] = {
     "PASS", "NICK", "USER", "JOIN", "PART", "PRIVMSG",
-    "MODE", "TOPIC", "INVITE", "KICK", "QUIT", "PING"
+    "MODE", "TOPIC", "INVITE", "KICK", "QUIT", "PING",
 };
 
 Server::Server(const int &port, const std::string &password) : _password(password)
@@ -99,8 +99,13 @@ void Server::initSocket()
 
     // Set the socket options
     int opt = 1;
-    if (setsockopt(this->_serverFd, SOL_SOCKET, SO_REUSEADDR | SO_REUSEPORT, &opt, sizeof(opt)) == -1)
+    if (setsockopt(this->_serverFd, SOL_SOCKET, SO_REUSEADDR | SO_REUSEPORT, &opt, sizeof(int)) == -1)
         throw std::runtime_error("Setsockopt failed");
+    
+    //KEEPALIVE -> PING PONG to check if client is still connected
+	if(setsockopt(this->_serverFd, SOL_SOCKET, SO_KEEPALIVE, &opt, sizeof(opt)) == -1)
+		throw std::runtime_error("[ERROR] Failed to set SO_KEEPALIVE option on socket");
+
 
     // set server configuration
     struct sockaddr_in serverAddr;
@@ -237,17 +242,20 @@ void Server::handlePass(Client* client, std::istringstream& iss) {
 
 
 void Server::handleMessage(int clientFd) {
-    char buffer[1024];
+    char buffer[512];
     ssize_t bytes_received;
     static std::map<int, std::string> client_buffers; // Static pour conserver l'état entre les appels
 
     // Lecture unique (pas de while pour éviter les boucles infinies sur connexion lente)
     bytes_received = recv(clientFd, buffer, sizeof(buffer) - 1, 0);
     
-    if (bytes_received <= 0) {
-        if (bytes_received == 0) {
+    if (bytes_received <= 0) 
+    {
+        if (bytes_received == 0) 
+        {
             std::cout << printTime() << "Client disconnected (FD " << clientFd << ")" << std::endl;
-        } else {
+        } else 
+        {
             std::cerr << printTime() << RED << " [ERROR] recv() failed for FD " << clientFd <<  RESET << std::endl;
         }
 
@@ -310,7 +318,7 @@ void Server::handleMessage(int clientFd) {
             continue;
         }
 
-        if (!isValidCommand) {
+        if (!isValidCommand && (command != "PONG" && command != "CAP" && command != "CAP LS" && command != "WHO" && command != "WHOIS")) {
             std::string errorMsg = ":" + _serverHost + " 421 " + (client->getNickname().empty() ? "*" : client->getNickname()) 
                                 + " " + command + " :Unknown command\r\n";
             send(clientFd, errorMsg.c_str(), errorMsg.size(), 0);
@@ -348,7 +356,7 @@ void Server::handleMessage(int clientFd) {
     }
 
     // Protection contre les buffers trop gros (attaque par flood)
-    if (client_buffers[clientFd].size() > 512 * 1024) { // 512Ko max
+    if (client_buffers[clientFd].size() > 512 ) { 
         std::cerr << printTime() << RED << " Buffer overflow detected on FD " << clientFd << RESET << std::endl;
         removeClient(clientFd);
         client_buffers.erase(clientFd);
@@ -357,6 +365,8 @@ void Server::handleMessage(int clientFd) {
 
 void Server::removeClient(int clientFd) 
 {
+    if (clientFd < 0) return;
+
 	if (clientFd >= 0)
    		close(clientFd);
 
