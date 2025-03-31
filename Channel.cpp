@@ -137,7 +137,7 @@ void Channel::alertAll(const std::string& nickname, const std::string& msg) {
     }
 }
 
-void Channel::removeClient(Client* client)
+void Channel::removeClient(Client* client, std::string arg)
 {
     std::vector<Client*>::iterator it = std::find(_clients.begin(), _clients.end(), client);
     if (it != _clients.end()) 
@@ -146,7 +146,7 @@ void Channel::removeClient(Client* client)
         std::string user = client->getUsername();
         std::string host = client->getHostname();
         _clients.erase(it);
-        std::string partMsg = ":" + nick + "!" + user + "@" + host + " PART " + _name + "\r\n";
+        std::string partMsg = ":" + nick + "!" + user + "@" + host + arg + _name + "\r\n";
         broadcast(partMsg);
 		_operators.erase(std::remove(_operators.begin(), _operators.end(), client), _operators.end());
     }

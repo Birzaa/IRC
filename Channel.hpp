@@ -47,7 +47,7 @@ class Channel
 		void broadcast(const std::string& message);
 		void broadcast2(const std::string& message, Client* exclude = NULL);
         void addClient(Client* client, const std::string& password);
-		void removeClient(Client* client);
+		void removeClient(Client* client, std::string arg);
 		const std::vector<Client*>& getClients() const;
 		bool isMember(Client* client) const;
 		Client* getClient(const std::string& nickname) const;

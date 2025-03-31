@@ -277,7 +277,7 @@ void Server::handleMessage(int clientFd) {
 
         if (full_message.empty()) continue;
 
-        std::cout << printTime() << full_message << std::endl;
+
 
         Client* client = getClientByFd(clientFd);
         if (!client) {
@@ -285,7 +285,12 @@ void Server::handleMessage(int clientFd) {
             client_buffers.erase(clientFd);
             return;
         }
+        
+        std::ostringstream oss;
+        oss << clientFd;
+        std::cout << printTime() << MAGENTA + (client->getNickname().empty() ? ("FD [" + oss.str() + "]: ") : client->getNickname()) + ": " RESET << full_message << std::endl;
 
+        
         std::istringstream iss(full_message);
         std::string command;
         iss >> command;
@@ -707,7 +712,7 @@ void Server::handlePart(Client* client, std::istringstream& iss) {
     it->second.broadcast(partMsg);
     
     // Retirer le client du channel
-    it->second.removeClient(client);
+    it->second.removeClient(client, " PART ");
 
     // Supprimer le channel si vide
     if (it->second.getClients().empty()) {
@@ -753,7 +758,7 @@ void Server::handleQuit(Client* client) {
             channel.broadcast(quitMsg);
             
             // 2. Retirer le client du channel
-            channel.removeClient(client);
+            channel.removeClient(client, " QUIT ");
             
             // 3. Supprimer les channels vides
             if (channel.getClients().empty()) {
@@ -839,10 +844,10 @@ void Server::handleKick(Client* client, std::istringstream& iss)
     channel.broadcast(kickMsg);
 
     // Retrait du channel
-    channel.removeClient(target);
+    channel.removeClient(target, " KICKED ");
 
     // Journalisation
-    std::cout << "KICK: " << client->getNickname() 
+    std::cout << printTime() << "KICK: " << client->getNickname() 
               << " kicked " << targetNick << " from " << channelName 
               << " (" << (reason.empty() ? "no reason" : reason) << ")" << std::endl;
 }
@@ -1149,7 +1154,7 @@ void Server::handlePing(Client* client, std::istringstream& iss) {
     }
 
     // Envoyer la réponse PONG
-    std::string response = ":" + _serverHost + " PONG " + _serverHost + " :" + token + "\r\n";
+    std::string response = "PONG :" + token + "\r\n";
     send(client->getFd(), response.c_str(), response.size(), 0);
     
     // Mettre à jour le dernier PONG reçu (pour le timeout)
@@ -1164,13 +1169,13 @@ void Server::checkPingTimeout() {
         time_t lastActive = client->getLastPong();
         
         if (now - lastActive > PING_TIMEOUT) {
-            std::cout << "Client " << client->getNickname() << " timed out (no PONG response)" << std::endl;
-            removeClient(client->getFd());
+            std::cout << printTime() << "Client " << client->getNickname() << " timed out (no PONG response)" << std::endl;
+            handleQuit(client);
             --i; // Ajuster l'index après suppression
         } 
         else if (now - lastActive > PING_INTERVAL) {
             // Envoyer un PING si le client n'a pas répondu récemment
-            std::string pingMsg = ":" + _serverHost + " PING " + _serverHost + " :" + _serverHost + "\r\n";
+            std::string pingMsg = "PING :" + _serverHost + "\r\n";
             send(client->getFd(), pingMsg.c_str(), pingMsg.size(), 0);
         }
     }
