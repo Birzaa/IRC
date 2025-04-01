@@ -23,7 +23,8 @@ bool isValidIRCPort(int port)
            port >= 7000);
 }
 
-int	checkAtoi(const std::string &number) {
+int	checkAtoi(const std::string &number) 
+{
 	char *tracker;
 	long goodValue;
 

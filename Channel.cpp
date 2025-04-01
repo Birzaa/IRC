@@ -26,65 +26,81 @@ Channel::~Channel()
 
 // Ajoutez ces méthodes :
 
-void Channel::setTopic(const std::string& topic) {
+void Channel::setTopic(const std::string& topic) 
+{
     _topic = topic;
 }
 
-const std::string& Channel::getTopic() const {
+const std::string& Channel::getTopic() const 
+{
     return _topic;
 }
 
-void Channel::setInviteOnly(bool inviteOnly) {
+void Channel::setInviteOnly(bool inviteOnly) 
+{
     _inviteOnly = inviteOnly;
 }
 
-bool Channel::getInviteOnly() const {
+bool Channel::getInviteOnly() const 
+{
     return _inviteOnly;
 }
 
-void Channel::setPassword(const std::string& password) {
+void Channel::setPassword(const std::string& password) 
+{
     _password = password;
 }
 
-const std::string& Channel::getPassword() const {
+const std::string& Channel::getPassword() const 
+{
     return _password;
 }
 
-void Channel::setMaxClients(int maxClients) {
+void Channel::setMaxClients(int maxClients) 
+{
     _maxClients = maxClients;
 }
 
-int Channel::getMaxClients() const {
+int Channel::getMaxClients() const 
+{
     return _maxClients;
 }
 
-void Channel::addInvited(const std::string& nickname) {
+void Channel::addInvited(const std::string& nickname) 
+{
     if (!isInvited(nickname))
         _invited.push_back(nickname);
 }
 
-bool Channel::isInvited(const std::string& nickname) const {
+bool Channel::isInvited(const std::string& nickname) const 
+{
     return std::find(_invited.begin(), _invited.end(), nickname) != _invited.end();
 }
 
-bool Channel::getTopicRestricted() const {
+bool Channel::getTopicRestricted() const 
+{
     return _topicRestricted;
 }
 
-void Channel::setTopicRestricted(bool restricted) {
+void Channel::setTopicRestricted(bool restricted) 
+{
     _topicRestricted = restricted;
 }
 
-void Channel::broadcast(const std::string& message) {
-    for (size_t i = 0; i < _clients.size(); ++i) {
+void Channel::broadcast(const std::string& message) 
+{
+    for (size_t i = 0; i < _clients.size(); ++i) 
+{
         send(_clients[i]->getFd(), message.c_str(), message.size(), 0);
     }
 }
 
 void Channel::broadcast2(const std::string& message, Client* exclude) 
 {
-   for (size_t i = 0; i < _clients.size(); ++i) {
-        if (_clients[i] != exclude) {  // Ne pas envoyer à 'exclude'
+   for (size_t i = 0; i < _clients.size(); ++i) 
+   {
+        if (_clients[i] != exclude) 
+        {
             send(_clients[i]->getFd(), message.c_str(), message.size(), 0);
         }
     }
@@ -92,27 +108,31 @@ void Channel::broadcast2(const std::string& message, Client* exclude)
 
 //                     Gestion des clients
 
-void Channel::addClient(Client* client, const std::string& password) {
+void Channel::addClient(Client* client, const std::string& password) 
+{
     std::string nick = client->getNickname();
     std::string user = client->getUsername();
     std::string host = client->getHostname();
 
     // 1. Vérifier la limite d'utilisateurs (+l)
-    if (_maxClients > 0 && _clients.size() >= static_cast<size_t>(_maxClients)) {
+    if (_maxClients > 0 && _clients.size() >= static_cast<size_t>(_maxClients)) 
+    {
         std::string msg = ":localhost 471 " + nick + " " + _name + " :Cannot join channel (+l)\r\n";
         send(client->getFd(), msg.c_str(), msg.size(), 0);
         return;
     }
 
     // 2. Vérifier le mot de passe (+k)
-    if (!_password.empty() && _password != password) {
+    if (!_password.empty() && _password != password) 
+    {
         std::string msg = ":localhost 475 " + nick + " " + _name + " :Cannot join channel (+k)\r\n";
         send(client->getFd(), msg.c_str(), msg.size(), 0);
         return;
     }
 
     // 3. Vérifier le mode invitation (+i)
-    if (_inviteOnly && !isInvited(nick)) {
+    if (_inviteOnly && !isInvited(nick)) 
+    {
         std::string msg = ":localhost 473 " + nick + " " + _name + " :Cannot join channel (+i)\r\n";
         send(client->getFd(), msg.c_str(), msg.size(), 0);
         return;
@@ -120,7 +140,8 @@ void Channel::addClient(Client* client, const std::string& password) {
 
     // 4. Ajouter le client
     _clients.push_back(client);
-    if (_clients.size() == 1) { // Premier client = OP
+    if (_clients.size() == 1) 
+    { // Premier client = OP
         _operators.push_back(client);
     }
 
@@ -128,10 +149,13 @@ void Channel::addClient(Client* client, const std::string& password) {
     sendJoinReply(client);
 }
 
-void Channel::alertAll(const std::string& nickname, const std::string& msg) {
+void Channel::alertAll(const std::string& nickname, const std::string& msg)
+{
     std::string final = ":" + nickname + "!" + nickname + "@localhost " + msg + "\r\n";
-    for (size_t i = 0; i < _clients.size(); i++) {
-        if (_clients[i]->getNickname() != nickname) {
+    for (size_t i = 0; i < _clients.size(); i++) 
+    {
+        if (_clients[i]->getNickname() != nickname) 
+        {
             send(_clients[i]->getFd(), final.c_str(), final.size(), 0);
         }
     }
@@ -151,6 +175,7 @@ void Channel::removeClient(Client* client, std::string arg)
 		_operators.erase(std::remove(_operators.begin(), _operators.end(), client), _operators.end());
     }
 }
+
 const std::vector<Client*>& Channel::getClients() const
 {
     return _clients;
@@ -201,7 +226,8 @@ void Channel::kickClient(Client* kicker, Client* target, const std::string& reas
 	{
         std::string msg = ":localhost 482 " + kicker->getNickname() + " " + _name + 
                          " :You're not channel operator\r\n";
-        send(kicker->getFd(), msg.c_str(), msg.size(), 0);        return;
+        send(kicker->getFd(), msg.c_str(), msg.size(), 0);        
+        return;
     }
 
     std::vector<Client*>::iterator it = std::find(_clients.begin(), _clients.end(), target);
@@ -209,7 +235,8 @@ void Channel::kickClient(Client* kicker, Client* target, const std::string& reas
 	{
         _clients.erase(it);
         std::string msg = ":" + kicker->getNickname() + " KICK " + _name + " " + target->getNickname() + " :" + reason + "\r\n";
-    	alertAll(kicker->getNickname(), "kicked " + target->getNickname() + " from channel");    }
+    	alertAll(kicker->getNickname(), "kicked " + target->getNickname() + " from channel");    
+    }
 }
 
 bool Channel::isMember(Client* client) const 
@@ -217,16 +244,18 @@ bool Channel::isMember(Client* client) const
 	return std::find(_clients.begin(), _clients.end(), client) != _clients.end();
 }
 
-Client* Channel::getClient(const std::string& nickname) const {
-    for (std::vector<Client*>::const_iterator it = _clients.begin(); it != _clients.end(); ++it) {
-        if ((*it)->getNickname() == nickname) {
+Client* Channel::getClient(const std::string& nickname) const 
+{
+    for (std::vector<Client*>::const_iterator it = _clients.begin(); it != _clients.end(); ++it) 
+    {
+        if ((*it)->getNickname() == nickname) 
+        {
             return *it;
         }
     }
     return NULL;
 }
 
-#include <sstream> // Ajoutez cette ligne en haut du fichier
 
 void Channel::sendIrcReply(int code, Client* client, const std::string& arg1, const std::string& arg2) 
 {
@@ -244,7 +273,8 @@ void Channel::sendIrcReply(int code, Client* client, const std::string& arg1, co
 }
 
 
-void Channel::sendJoinReply(Client* client) {
+void Channel::sendJoinReply(Client* client) 
+{
     // 1. Envoie le message JOIN à tous les membres du canal
     std::string joinMsg = ":" + client->getNickname() + "!" + client->getUsername() + "@" + client->getHostname() 
                         + " JOIN " + _name + "\r\n";
@@ -252,8 +282,10 @@ void Channel::sendJoinReply(Client* client) {
 
     // 2. Construit la liste des nicks avec préfixes opérateurs
     std::string namesList;
-    for (size_t i = 0; i < _clients.size(); ++i) {
-        if (isOperator(_clients[i])) {
+    for (size_t i = 0; i < _clients.size(); ++i) 
+    {
+        if (isOperator(_clients[i])) 
+        {
             namesList += "@"; // Préfixe opérateur
         }
         namesList += _clients[i]->getNickname() + " ";
@@ -265,7 +297,8 @@ void Channel::sendJoinReply(Client* client) {
 
 
     // 4. Envoie le topic si existant
-    if (!_topic.empty()) {
+    if (!_topic.empty()) 
+    {
         sendIrcReply(332, client, _name, _topic);  // RPL_TOPIC
     }
     

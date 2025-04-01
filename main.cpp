@@ -1,14 +1,17 @@
 #include "Server.hpp"
 #include <csignal>
-#include <cstdlib> // pour atoi
+#include <cstdlib> 
 
-int main(int ac, char **av) {
-    if (ac != 3) {
+int main(int ac, char **av) 
+{
+    if (ac != 3) 
+    {
         std::cerr << RED << "Error: " << "./irc <port> <password>" << RESET << std::endl;
         return EXIT_FAILURE;
     }
 
-    try {
+    try 
+    {
         // 1. Validation du port
         int port = checkAtoi(av[1]);
         
@@ -23,7 +26,9 @@ int main(int ac, char **av) {
         // 4. Initialisation et démarrage
         server.initServer();
         
-    } catch (const std::exception& e) {
+    } 
+    catch (const std::exception& e) 
+    {
         // Toutes les exceptions sont attrapées ici
         std::cerr << RED << "Fatal error: " << e.what() << RESET << std::endl;
         return EXIT_FAILURE;

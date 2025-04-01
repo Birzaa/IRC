@@ -1,3 +1,21 @@
+QUIT: ne qitte pas directement + pas de message
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 Objectif : Créer un serveur ou plusieurs personne (clients) peuvent se connecter pour acceder à un chat en gros.
 
 Comment : 

@@ -18,6 +18,7 @@
 #include <string>
 
 
+
 #define GREEN   "\033[0;32m"
 #define RED     "\033[0;31m"
 #define YELLOW  "\033[0;33m"
@@ -28,10 +29,8 @@
 #define RESET   "\033[0m"
 #define BOLD_RED "\033[1;31m"
 
-#define PING_INTERVAL 30
-#define PING_TIMEOUT 60
-
-# define RPL_WHOISUSER(nickname, host_name, username) (":localhost 311 " + nickname + " " + host_name + " ~" + username + " localhost * :" + username + "\r\n")
+#define PING_INTERVAL 300
+#define PING_TIMEOUT 600
 
 
 

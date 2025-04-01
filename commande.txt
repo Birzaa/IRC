@@ -1,7 +1,7 @@
 irssi : 
 CTRL+N pour changer de fenetre
 
-/connect -nocap 127.0.0.1 6667 123
+/connect 127.0.0.1 6667 123
 
 /join channelTest
 
