@@ -339,7 +339,7 @@ void Server::handleMessage(int clientFd)
         }
         if (command == "CAP") 
         {
-            send(clientFd, "CAP :Not supported\r\n", 20, 0);
+            // send(clientFd, "CAP :Not supported\r\n", 20, 0);
             continue;
         }
 
@@ -726,7 +726,7 @@ void Server::createChannel(std::istringstream& iss, Client* client)
     password.erase(std::remove(password.begin(), password.end(), '\n'), password.end());
 
     // Validation basique
-    if (channelName.empty() || (channelName[0] != '#' && channelName[0] != '&') || channelName.size() > 50) 
+    if (channelName.empty() || (channelName[0] != '#' && channelName[0] != '&') || channelName.size() > 50 || channelName.size() < 2)
     {
         std::string msg = ":" + _serverHost + " 403 " + client->getNickname() + " "+ channelName +  " :Invalid channel name\r\n";
         send(client->getFd(), msg.c_str(), msg.size(), 0);
@@ -1010,8 +1010,8 @@ void Server::handleInvite(Client* client, std::istringstream& iss)
     it->second.addInvited(targetNick);
 
     // Envoyer les notifications
-    std::string msg = ":" + _serverHost + " 341 " + targetNick + " " + channelName + " :Inviting you to " + channelName + "\r\n";
-    send(target->getFd(), msg.c_str(), msg.size(), 0);
+    // std::string msg = ":" + _serverHost + " 341 " + targetNick + " " + channelName + " :Inviting you to " + channelName + "\r\n";
+    // send(target->getFd(), msg.c_str(), msg.size(), 0);
 
     // Notification à la cible
     std::string inviteMsg = ":" + getClientHostmask(client) + " INVITE " + targetNick + " " + channelName + "\r\n";
@@ -1271,10 +1271,14 @@ void Server::handleMode(Client* client, std::istringstream& iss)
 
 void Server::sendWelcomeMessage(Client* client) 
 {
+    // std::string welcomeMsg = ":" + _serverHost + " 001 " + client->getNickname() + 
+    //                        " :Welcome to the Internet Relay Network " + 
+    //                        client->getNickname() + "!" + client->getUsername() + 
+    //                        "@" + client->getHostname() + "\r\n";
+    
     std::string welcomeMsg = ":" + _serverHost + " 001 " + client->getNickname() + 
-                           " :Welcome to the Internet Relay Network " + 
-                           client->getNickname() + "!" + client->getUsername() + 
-                           "@" + client->getHostname() + "\r\n";
+                           " :Welcome to the Internet Relay Network " + \
+                           client->getNickname() + "\r\n";
     
     send(client->getFd(), welcomeMsg.c_str(), welcomeMsg.size(), 0);
     

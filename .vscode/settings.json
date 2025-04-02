@@ -63,6 +63,7 @@
 		"chrono": "cpp",
 		"format": "cpp",
 		"iomanip": "cpp",
-		"span": "cpp"
+		"span": "cpp",
+		"ranges": "cpp"
 	}
 }
