@@ -260,9 +260,8 @@ void Server::handleMessage(int clientFd)
 {
     char buffer[512];
     ssize_t bytes_received;
-    static std::map<int, std::string> client_buffers; // Static pour conserver l'état entre les appels
+    static std::map<int, std::string> client_buffers;
 
-    // Lecture unique (pas de while pour éviter les boucles infinies sur connexion lente)
     bytes_received = recv(clientFd, buffer, sizeof(buffer) - 1, 0);
     
     if (bytes_received <= 0) 
@@ -270,9 +269,10 @@ void Server::handleMessage(int clientFd)
         if (bytes_received == 0) 
         {
             std::cout << printTime() << "Client disconnected (FD " << clientFd << ")" << std::endl;
-        } else 
+        } 
+        else 
         {
-            std::cerr << printTime() << RED << " [ERROR] recv() failed for FD " << clientFd <<  RESET << std::endl;
+            std::cerr << printTime() << RED << " [ERROR] recv() failed for FD " << clientFd << RESET << std::endl;
         }
 
         Client* client = getClientByFd(clientFd);
@@ -284,28 +284,27 @@ void Server::handleMessage(int clientFd)
         {
             removeClient(clientFd);
         }
-        client_buffers.erase(clientFd); // Nettoyage du buffer
+        client_buffers.erase(clientFd);
         return;
     }
 
     buffer[bytes_received] = '\0';
-    client_buffers[clientFd] += buffer; // Accumulation des fragments
+    client_buffers[clientFd] += buffer;
 
-    // Détection des messages complets (délimités par \n)
-    size_t pos;
-    while ((pos = client_buffers[clientFd].find('\n')) != std::string::npos) 
+    // Process complete messages (ending with \r\n)
+    size_t end_pos;
+    while ((end_pos = client_buffers[clientFd].find("\r\n")) != std::string::npos) 
     {
-        std::string full_message = client_buffers[clientFd].substr(0, pos);
-        client_buffers[clientFd].erase(0, pos + 1); // Retire le message traité
+        std::string full_message = client_buffers[clientFd].substr(0, end_pos);
+        client_buffers[clientFd].erase(0, end_pos + 2);
 
-        // Nettoyage du message
+        // Clean the message
         full_message.erase(std::remove(full_message.begin(), full_message.end(), '\r'), full_message.end());
-        full_message.erase(0, full_message.find_first_not_of(" \t\n\r"));
-        full_message.erase(full_message.find_last_not_of(" \t\n\r") + 1);
+        full_message.erase(std::remove(full_message.begin(), full_message.end(), '\n'), full_message.end());
+        full_message.erase(0, full_message.find_first_not_of(" \t"));
+        full_message.erase(full_message.find_last_not_of(" \t") + 1);
 
         if (full_message.empty()) continue;
-
-
 
         Client* client = getClientByFd(clientFd);
         if (!client) 
@@ -315,19 +314,17 @@ void Server::handleMessage(int clientFd)
             return;
         }
         
+        // Log the message
         std::ostringstream oss;
         oss << clientFd;
         std::cout << printTime() << MAGENTA + (client->getNickname().empty() ? ("FD [" + oss.str() + "]: ") : client->getNickname()) + ": " RESET << full_message << std::endl;
 
-        
         std::istringstream iss(full_message);
         std::string command;
         iss >> command;
         std::transform(command.begin(), command.end(), command.begin(), ::toupper);
 
-
-
-        // Vérification de la commande
+        // Check if command is valid
         bool isValidCommand = false;
         for (size_t i = 0; i < sizeof(VALID_COMMANDS)/sizeof(VALID_COMMANDS[0]); ++i)
         {
@@ -337,12 +334,14 @@ void Server::handleMessage(int clientFd)
                 break;
             }
         }
+
+        // Handle CAP (ignore for now)
         if (command == "CAP") 
         {
-            // send(clientFd, "CAP :Not supported\r\n", 20, 0);
             continue;
         }
 
+        // Handle unknown commands
         if (!isValidCommand && (command != "PONG" && command != "CAP" && command != "CAP LS" && command != "WHO" && command != "WHOIS")) 
         {
             std::string errorMsg = ":" + _serverHost + " 421 " + (client->getNickname().empty() ? "*" : client->getNickname()) 
@@ -351,6 +350,7 @@ void Server::handleMessage(int clientFd)
             continue;
         }
 
+        // Check authentication for non-PASS commands
         if (!client->getAuthenticated() && command != "PASS") 
         {
             std::string errorMsg = ":" + _serverHost + " 451 " + (client->getNickname().empty() ? "*" : client->getNickname()) 
@@ -359,6 +359,7 @@ void Server::handleMessage(int clientFd)
             continue;
         }
 
+        // Process the command
         try 
         {
             if (command == "PASS") handlePass(client, iss);
@@ -384,8 +385,8 @@ void Server::handleMessage(int clientFd)
         }
     }
 
-    // Protection contre les buffers trop gros (attaque par flood)
-    if (client_buffers[clientFd].size() > 512 ) 
+    // Protection against buffer overflow (4KB max)
+    if (client_buffers[clientFd].size() > 4096) 
     { 
         std::cerr << printTime() << RED << " Buffer overflow detected on FD " << clientFd << RESET << std::endl;
         removeClient(clientFd);
@@ -445,6 +446,17 @@ void Server::handleNick(Client* client, std::istringstream& iss)
 {
     std::string nickname;
     iss >> nickname;
+
+    // Vérification : Trop d'arguments après le nick
+    std::string extra;
+    if (iss >> extra) // Si on lit encore quelque chose, c'est une erreur
+    {
+        std::string response = ":" + _serverHost + " 461 ";
+        response += (client->getNickname().empty() ? "*" : client->getNickname());
+        response += " NICK :Too many parameters\r\n";
+        send(client->getFd(), response.c_str(), response.size(), 0);
+        return;
+    }
 
     // Nettoyage du nickname
     std::string::iterator it;
@@ -552,12 +564,16 @@ void Server::handleUser(Client* client, std::istringstream& iss)
     iss >> username >> hostname >> servername;
     std::getline(iss, realname);  // Capture le reste comme realname
 
-    // Nettoyage de realname (supprime : et espaces en début)
-    size_t colon_pos = realname.find_first_of(":");
-    if (colon_pos != std::string::npos) 
-    {
-        realname = realname.substr(colon_pos + 1);
-    }
+     // Vérification du ':' pour realname (RFC 2812 Section 2.3.1)
+     std::getline(iss, realname);
+     size_t colon_pos = realname.find_first_of(":");
+     if (colon_pos == std::string::npos) 
+     {
+        std::string response = ":" + _serverHost + " 461 Realname must start with ':'\r\n";\
+        send(client->getFd(), response.c_str(), response.size(), 0);
+         return;
+     }
+     realname = realname.substr(colon_pos + 1);
     
     // Suppression des espaces/tabulations en début/fin
     size_t start = realname.find_first_not_of(" \t");
